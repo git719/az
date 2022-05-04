@@ -69,5 +69,5 @@ azrm Azure RBAC role definition & assignment remover v121
 ```
 
 ### group_create
-Script `group_create.ps` is quick example of how to create an Azure AD group using `PowerShell` code.
+Script `group_create.ps1` is quick example of how to create an Azure AD group using `PowerShell` code.
 
