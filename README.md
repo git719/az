@@ -31,7 +31,7 @@ If `credentials.json` file doesn't exist, an empty skeleton one will be created 
 ### azls
 This is an Azure RBAC and MS Graph listing utility.
 
-This is the Python version. The GoLang version is at https://github.com/lencap/zls. This version is a little slower, but the code can be useful for those working with Python. **Note**, this version is also usually behind in updates and may be fully rescinded and archived in the future in favor of the better GoLang version.
+This is the Python version. The GoLang version is at https://github.com/git719/zls. This version is a little slower, but the code can be useful for those working with Python. **Note**, this version is also usually behind in updates and may be fully rescinded and archived in the future in favor of the better GoLang version.
 
 
 ### aztag
