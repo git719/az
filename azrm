@@ -1,0 +1,413 @@
+#!/usr/bin/env python
+# azrm
+
+import atexit
+import json
+import msal
+import os
+import requests
+import sys
+import uuid
+import yaml
+
+# Global variables
+prgname         = "azrm"
+prgver          = "122"
+confdir         = ""
+tenant_id       = ""
+client_id       = ""
+client_secret   = ""
+authority_url   = ""
+az_url          = "https://management.azure.com"
+az_token        = {}
+az_headers      = {}
+oMap            = {
+    "d":  "roleDefinitions",
+    "a":  "roleAssignments",
+}
+
+
+def print_usage():
+    print(prgname + " Azure RBAC role definition & assignment remover v" + prgver + "\n"
+        "     -d UUID|SPECFILE|\"role name\"      Delete role definition from Azure (SPECFILE in JSON format)\n"
+        "     -a UUID|SPECFILE                  Delete role assignment from Azure (SPECFILE in YAML format)\n"
+        "     -v                                Display this usage")
+    sys.exit(1)
+
+
+def setup_credentials():
+    # Tell this function we are updating below global variables
+    global tenant_id, client_id, client_secret
+    
+    # Set up credentials and other variables
+    creds_file = os.path.join(confdir, "credentials.json")
+    if not file_exist(creds_file) or file_size(creds_file) < 1:
+        print("Missing credentials file: \"%s\"" % (creds_file))
+        with open(creds_file, "w") as f:
+            f.write("{\n  \"tenant_id\" : \"UUID\",\n  \"client_id\" : \"UUID\",\n  \"client_secret\" : \"SECRET\"\n}\n")
+        os.chmod(creds_file, 0o600)
+        print("Created new skeleton file: Please edit it, fill in required values, and re-run program.")
+        sys.exit(1)
+
+    try:
+        with open(creds_file) as f:
+            creds = json.load(f)
+            tenant_id = creds["tenant_id"]
+            client_id = creds["client_id"]
+            client_secret = creds["client_secret"]
+    except Exception as e:
+        print("Missing tenant_id, client_id or client_secret values in '%s'" % creds_file)
+        sys.exit(1)
+
+    if not valid_uuid(tenant_id):
+        print("tenant_id '%s' in '%s' is not a valid UUID" % (tenant_id, creds_file))
+        sys.exit(1)
+    if not valid_uuid(client_id):
+        print("client_id '%s' in '%s' is not a valid UUID" % (client_id, creds_file))
+        sys.exit(1)
+    if not client_secret:
+        print("client_secret in '%s' is blank" % (creds_file))
+        sys.exit(1)
+
+
+def setup_az_token():
+    # Tell this function we are updating below global variables
+    global authority_url, az_token, az_headers
+    authority_url = 'https://login.microsoftonline.com/' + tenant_id
+    # Note that '/.defaut' uses whatever static permissions are defined for the SP in the resource domain
+    az_token = get_token([az_url + '/.default'])
+    az_headers = {'Authorization': 'Bearer ' + az_token['access_token'], 'Content-Type': 'application/json'}
+
+
+def get_token(scopes):
+    token = None
+
+    # Set up cache, as per https://msal-python.readthedocs.io/en/latest/#msal.SerializableTokenCache
+    cache = msal.SerializableTokenCache()
+    cache_file = os.path.join(confdir, 'accessTokens.json')
+    if file_exist(cache_file):
+        cache.deserialize(open(cache_file, 'r').read())
+    
+    atexit.register(lambda:
+        open(cache_file, 'w').write(cache.serialize())
+        # Hint: The following option line persists only when state changed
+        if cache.has_state_changed else None
+        and os.chmod(cache_file, 0o600)
+    )
+
+    app = msal.ConfidentialClientApplication(
+        client_id,
+        authority=authority_url,
+        client_credential = client_secret,
+        token_cache=cache
+    )
+    try:
+        # Try getting cached token first
+        token = app.acquire_token_silent(scopes, account=None)
+        # print("\nTOKEN_CACHED = %s\n" % token)  # DEBUG
+        if not token:
+            try:
+                # Else, just get a new token
+                token = app.acquire_token_for_client(scopes=scopes)
+                # print("\nTOKEN_NEW = %s\n" % token)  # DEBUG
+                if 'access_token' not in token:
+                    print('Error getting MS Graph token.')
+                    sys.exit(1)
+            except:
+                pass
+    except Exception as e:
+        print("Error acquiring token silently:\n%s" % (str(e)))
+    return token
+
+
+def dump_variables():
+    print("tenant_id:    ", tenant_id, "\n"
+        "client_id:    ", client_id, "\n"
+        "client_secret:", client_secret, "\n"
+        "authority_url:", authority_url, "\n"
+        "az_url:       ", az_url, "\n"
+        "az_headers:   ", az_headers)
+    sys.exit(1)
+
+
+def valid_uuid(id):
+    try:
+        uuid.UUID(str(id))
+        return True
+    except Exception as e:
+        return False
+
+
+def load_file_yaml(filePath):
+    # Read/load/decode given filePath as some YAML object
+    try:
+        with open(filePath) as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        print("Error reading file '%s'" % (filePath))
+        sys.exit(1)
+
+
+def load_file_json(filePath):
+    # Read/load/decode given filePath as some JSON object
+    try:
+        with open(filePath) as f:
+            return json.load(f)
+    except Exception as e:
+        print("Error reading file '%s'" % (filePath))
+        sys.exit(1)
+
+
+def file_exist(f):
+    return os.path.exists(f)
+
+
+def file_size(f):
+    return os.path.getsize(f)
+
+
+def az_api_get(resource, headers=None, params=None, verbose=False):
+    # Set up AZ headers and parameters, and make the call
+    headers_all = az_headers  # Use base headers by default
+    if headers:  # Merge any additional optional headers
+        headers_all = {**az_headers, **headers}
+    params_all = {'api-version': '2018-07-01'}  # Use base parameters by default
+    if params:  # Merge any additional optional parameters
+        params_all = {**params_all, **params}  # Merge params dict
+    return api_call(resource, "get", headers_all, params_all, verbose=verbose)
+
+
+def az_api_delete(resource, headers=None, params=None, verbose=False):
+    # Set up AZ headers and parameters, and make the call
+    headers_all = az_headers  # Use base headers by default
+    if headers:  # Merge any additional optional headers
+        headers_all = {**az_headers, **headers}
+    params_all = {'api-version': '2018-07-01'}  # Use base parameters by default
+    if params:  # Merge any additional optional parameters
+        params_all = {**params_all, **params}  # Merge params dict
+    return api_call(resource, "delete", headers_all, params_all, verbose=verbose)
+
+
+def api_call(resource, method=None, headers=None, params=None, data=None, verbose=False):
+    # Make API calls
+    try:
+        if verbose:
+            print("API CALL: %s" % (resource))
+            print("PARAMS  : %s" % (params))
+            print("HEADERS : %s" % (headers))
+            if data != None:
+                print("DATA    : %s" % (data))
+
+        if method == "get":
+            r = requests.get(resource, headers=headers, params=params).json()
+            if isinstance(r, int):  # Handle $count filter integer returns
+                return r
+        elif method == "delete":
+            r = requests.delete(resource, headers=headers, params=params).json()
+        elif method == "put":
+            r = requests.put(resource, headers=headers, params=params, data=data).json()
+
+        if verbose:
+            if 'error' in r:
+                print(r['error']['message'])
+        return r
+    except Exception as e:
+        print("Request error:\n%s" % (str(e)))
+        sys.exit(1)
+
+
+def get_sub_ids():
+    ids = []
+    r = az_api_get(az_url + "/subscriptions")  # Get all subscriptions from Azure
+    if 'value' in r and len(r['value']):
+        subs = r['value']
+    for s in subs:
+        if s['displayName'] == 'Access to Azure Active Directory': 
+            continue  # Skip legacy subscriptions (they have no role definitions)
+        ids.append(s["subscriptionId"])
+    return ids
+
+
+def get_by_id(t, id):
+    # Retrieve Azure role definition or assignment object by UUID
+    # First, search for this object at Tenant root level
+    url = az_url + "/providers/Microsoft.Management/managementGroups/" + tenant_id
+    url += "/providers/Microsoft.Authorization/" + oMap[t] + "/" + id
+    r = az_api_get(url)
+    if "name" in r:
+        return r
+    else:
+        # Finally, search for it under each Subscription scope
+        for subId in get_sub_ids():
+            url = az_url + "/subscriptions/" + subId + "/providers/Microsoft.Authorization/" + oMap[t] + "/" + id
+            r = az_api_get(url)
+            if "name" in r:
+                return r  # Return as soon as we find it
+        return None        
+
+
+def get_by_name(t, name):
+    # Retrieve Azure role definition object with 'name' as displayName
+    if t == "a":
+        return []  # Assignments have no displayName, so return empty list
+
+    # First, search for this object at Tenant root level
+    url = az_url + "/providers/Microsoft.Management/managementGroups/" + tenant_id
+    url += "/providers/Microsoft.Authorization/" + oMap[t] + "?$filter=roleName+eq+'" + name + "'"
+    r = az_api_get(url)
+    if 'value' in r and len(r['value']) > 0:
+        for d in r['value']:
+            if d["properties"]["roleName"] == name:
+                return d
+    else:
+        # Finally, search for it under each Subscription scope
+        for subId in get_sub_ids():
+            url = az_url + "/subscriptions/" + subId + "/providers/Microsoft.Authorization/"
+            url += oMap[t] + "?$filter=roleName+eq+'" + name + "'"
+            r = az_api_get(url)
+            if 'value' in r and len(r['value']) > 0:
+                for d in r['value']:
+                    if d["properties"]["roleName"] == name:
+                        return d
+    return None
+
+
+def get_by_specfile(t, specfile):
+    # Retrieve object from Azure using attributes in specfile
+    # Get role definition object by roleName
+    if t == "d":
+        obj = load_file_json(specfile)
+        name = obj['properties']['roleName']
+        return get_by_name(t, name)
+    elif t != "a":
+        return None  # Return empty object for any other type
+
+    # Getting role assignment object is a bit more involved 
+    try:
+        obj = load_file_yaml(specfile)
+        xProps = obj['properties']
+        specRoleId = xProps['roleDefinitionId'].split("/")[-1]  # Note we only care about the UUID
+        specPrincipalId = xProps['principalId']
+        if 'scope' in xProps:
+            specScope = xProps['scope']
+        elif 'Scope' in xProps:
+            specScope = xProps['Scope']
+    except Exception as e:
+        print("Specfile is missing one or more of the 3 required items.\n\n"
+            "properties:\n"
+            "    roleDefinitionId: <uuid or long-role-def-id>\n"
+            "    principalId: <uuid>\n"
+            "    Scope: <resource-path>\n"
+            "\nAlso ensure attribute case is exactly as above.")
+        sys.exit(1)
+
+    # Search for role assignment in the scope defined in specfile
+    url = az_url + "/" + specScope
+    url += "/providers/Microsoft.Authorization/roleAssignments?$filter=principalId+eq+'" + specPrincipalId + "'"
+    r = az_api_get(url)
+    if "value" in r and len(r["value"]) > 0:
+        for a in r["value"]:
+            azRoleId = a["properties"]["roleDefinitionId"].split("/")[-1]
+            azPrincipalId = a["properties"]["principalId"]
+            azScope = a["properties"]["scope"]
+            if azRoleId == specRoleId and azPrincipalId == specPrincipalId and azScope == specScope:
+                return a  # If 3 parameters match, then we have our assignment object
+    else:
+        return None
+
+
+def print_json(o):
+    print(json.dumps(o, indent=2))
+
+
+def print_yaml(o):
+    yaml.safe_dump(o, sys.stdout, default_flow_style=False)
+
+
+def print_role_assignment(x):
+    if x == None or "properties" not in x:
+        return
+    print("properties:")
+    scope = x["properties"]["scope"]
+    principalId = x["properties"]["principalId"]
+    roleId = x["properties"]["roleDefinitionId"].split("/")[-1]
+    print("  %-17s %s" % ("scope:", scope))
+    print("  %-17s %s" % ("principalId:", principalId))
+    print("  %-17s %s" % ("roleDefinitionId:", roleId))
+
+
+def delete_object(t, x):
+    if x == None or "name" not in x:
+        print("Object doesn't exist")
+        sys.exit(1)
+
+    objId = x["name"]
+
+    if t == "d":
+        print_json(x)
+        scope = x["properties"]["assignableScopes"][0] #  First entry from assignableScopes is fine
+        msg = "Delete above role definition? y/n "
+    elif t == "a":    
+        print_role_assignment(x)
+        scope = x["properties"]["scope"]
+        msg = "Delete above role assignment? y/n "
+
+    # Confirm delete
+    response = input(msg)
+    if response != "y":
+        sys.exit(1)
+
+    url = az_url + scope + "/providers/Microsoft.Authorization/" + oMap[t] + "/" + objId
+    r = az_api_delete(url)
+
+
+def main(args = None):
+    number_of_args = len(sys.argv[1:]) # Not including the program itself
+    if number_of_args not in [1, 2]:
+        print_usage()  # Don't accept less than 1 or more than 2 argument
+
+    global confdir # We're updating a global variable
+    if os.environ['HOME']:
+        confdir = os.path.join(os.environ['HOME'], "." + prgname)
+        if not file_exist(confdir):
+            os.makedirs(confdir)
+            os.chmod(confdir, 0o700)
+    else:
+        print("Missing HOME environment variable")
+        sys.exit(1)
+
+    if number_of_args == 1:  # One-argument requests
+        arg1 = sys.argv[1].lower() # Always treat 1st argument as Lowercase, to ease comparisons
+        if arg1 == "-v":
+            print_usage()
+        elif arg1 == "-z":
+            setup_credentials() # Set up tenant ID and credentials
+            setup_az_token()    # Remaining requests need API token
+            dump_variables()
+        else:
+            print("This option is not yet available.")
+    else:    # Two-argument requests
+        arg1 = sys.argv[1].lower()
+        arg2 = sys.argv[2]
+
+        if arg1 in ["-d", "-a"]:
+            t = arg1[1:]   # Single out our object type letter (see oMap)
+
+            setup_credentials() # Set up tenant ID and credentials
+            setup_az_token()    # Remaining requests need API token
+
+            if valid_uuid(arg2):
+                x = get_by_id(t, arg2)
+                delete_object(t, x)
+            elif file_exist(arg2) and file_size(arg2) > 0:
+                x = get_by_specfile(t, arg2)
+                delete_object(t, x)
+            else:
+                x = get_by_name(t, arg2)
+                delete_object(t, x)
+        else:
+            print("This option is not yet available.")
+
+
+if __name__ == '__main__':
+    main()

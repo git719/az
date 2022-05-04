@@ -1,0 +1,1274 @@
+#!/usr/bin/env python
+# azls
+
+import atexit
+import json
+import msal
+import os
+import requests
+import sys
+import time
+import uuid
+import yaml
+from datetime import datetime
+
+# Global variables
+prgname         = "azls"
+prgver          = "129"
+confdir         = ""
+tenant_id       = ""
+client_id       = ""
+client_secret   = ""
+authority_url   = ""
+mg_url          = "https://graph.microsoft.com"
+az_url          = "https://management.azure.com"
+mg_token        = {} 
+az_token        = {}
+mg_headers      = {}
+az_headers      = {}
+oMap            = {
+    "d":  "roleDefinitions",
+    "a":  "roleAssignments",
+    "s":  "subscriptions",
+    "u":  "users",
+    "g":  "groups",
+    "sp": "servicePrincipals",
+    "ap": "applications",
+}
+
+
+def print_usage():
+    print(prgname + " Azure RBAC and MS Graph listing utility v" + prgver + "\n"
+        "     -Xc               List total number of X objects in tenant\n"
+        "     -Xj               List all X objects in JSON format\n"
+        "     -X                List all X objects tersely (UUID and most essential attributes)\n"
+        "     -X \"string\"       List all X objects whose name has \"string\" in it\n"
+        "     -Xj UUID          List specific X object in JSON format\n"
+        "     -X UUID           List specific X object in YAML-like human-readable format\n"
+        "     -X <specfile>     Compare X object specfile to what's in Azure\n"
+        "     -Xx               Delete cached X object local file\n"
+        "\n"
+        "     Where 'X' can be any of these object types:\n"
+        "       'd'  = Role Definitions   'a' = Role Assignments   's'  = Azure Subscriptions\n"
+        "       'u'  = Azure AD Users     'g' = Groups             'sp' = Service Principals\n"
+        "       'ap' = Applications\n"
+        "\n"
+        "     -ar               List all role assignments with resolved names\n"
+        "     -pags             List all Azure AD Priviledge Access Groups\n"
+        "     -tx               Delete cached accessTokens file\n"
+        "     -v                Print this usage page")
+    sys.exit(1)
+
+
+def setup_credentials():
+    # Tell this function we are updating below global variables
+    global tenant_id, client_id, client_secret
+    
+    # Set up credentials and other variables
+    creds_file = os.path.join(confdir, "credentials.json")
+    if not file_exist(creds_file) or file_size(creds_file) < 1:
+        print("Missing credentials file: \"%s\"" % (creds_file))
+        with open(creds_file, "w") as f:
+            f.write("{\n  \"tenant_id\" : \"UUID\",\n  \"client_id\" : \"UUID\",\n  \"client_secret\" : \"SECRET\"\n}\n")
+        os.chmod(creds_file, 0o600)
+        print("Created new skeleton file: Please edit it, fill in required values, and re-run program.")
+        sys.exit(1)
+
+    try:
+        with open(creds_file) as f:
+            creds = json.load(f)
+            tenant_id = creds["tenant_id"]
+            client_id = creds["client_id"]
+            client_secret = creds["client_secret"]
+    except Exception as e:
+        print("Missing tenant_id, client_id or client_secret values in '%s'" % creds_file)
+        sys.exit(1)
+
+    if not valid_uuid(tenant_id):
+        print("tenant_id '%s' in '%s' is not a valid UUID" % (tenant_id, creds_file))
+        sys.exit(1)
+    if not valid_uuid(client_id):
+        print("client_id '%s' in '%s' is not a valid UUID" % (client_id, creds_file))
+        sys.exit(1)
+    if not client_secret:
+        print("client_secret in '%s' is blank" % (creds_file))
+        sys.exit(1)
+
+
+def setup_az_token():
+    # Tell this function we are updating below global variables
+    global authority_url, az_token, az_headers
+    authority_url = 'https://login.microsoftonline.com/' + tenant_id
+    # Note that '/.defaut' uses whatever static permissions are defined for the SP in the resource domain
+    az_token = get_token([az_url + '/.default'])
+    az_headers = {'Authorization': 'Bearer ' + az_token['access_token'], 'Content-Type': 'application/json'}
+
+
+def setup_mg_token():
+    # Tell this function we are updating below global variables
+    global authority_url, mg_token, mg_headers
+    authority_url = 'https://login.microsoftonline.com/' + tenant_id
+    # Note that '/.defaut' uses whatever static permissions are defined for the SP in the resource domain
+    mg_token = get_token([mg_url + '/.default'])
+    mg_headers = {'Authorization': 'Bearer ' + mg_token['access_token'], 'Content-Type': 'application/json'}
+
+
+def get_token(scopes):
+    token = None
+
+    # Set up cache, as per https://msal-python.readthedocs.io/en/latest/#msal.SerializableTokenCache
+    cache = msal.SerializableTokenCache()
+    cache_file = os.path.join(confdir, 'accessTokens.json')
+    if file_exist(cache_file):
+        cache.deserialize(open(cache_file, 'r').read())
+    
+    atexit.register(lambda:
+        open(cache_file, 'w').write(cache.serialize())
+        # Hint: The following option line persists only when state changed
+        if cache.has_state_changed else None
+        and os.chmod(cache_file, 0o600)
+    )
+
+    app = msal.ConfidentialClientApplication(
+        client_id,
+        authority=authority_url,
+        client_credential = client_secret,
+        token_cache=cache
+    )
+    try:
+        # Try getting cached token first
+        token = app.acquire_token_silent(scopes, account=None)
+        # print("\nTOKEN_CACHED = %s\n" % token)  # DEBUG
+        if not token:
+            try:
+                # Else, just get a new token
+                token = app.acquire_token_for_client(scopes=scopes)
+                # print("\nTOKEN_NEW = %s\n" % token)  # DEBUG
+                if 'access_token' not in token:
+                    print('Error getting MS Graph token.')
+                    sys.exit(1)
+            except:
+                pass
+    except Exception as e:
+        print("Error acquiring token silently:\n%s" % (str(e)))
+    return token
+
+
+def dump_variables():
+    print("tenant_id:    ", tenant_id, "\n"
+        "client_id:    ", client_id, "\n"
+        "client_secret:", client_secret, "\n"
+        "authority_url:", authority_url, "\n"
+        "mg_url:       ", mg_url, "\n"
+        "az_url:       ", az_url, "\n"
+        "mg_headers:   ", mg_headers, "\n"
+        "az_headers:   ", az_headers)
+    sys.exit(1)
+
+
+def valid_uuid(id):
+    try:
+        uuid.UUID(str(id))
+        return True
+    except Exception as e:
+        return False
+
+
+def az_api_get(resource, headers=None, params=None, verbose=False):
+    # Set up AZ headers and parameters, and make the call
+    headers_all = az_headers  # Use base headers by default
+    if headers:  # Merge any additional optional headers
+        headers_all = {**az_headers, **headers}
+    params_all = {'api-version': '2018-07-01'}  # Use base parameters by default
+    if params:  # Merge any additional optional parameters
+        params_all = {**params_all, **params}  # Merge params dict
+    return api_call(resource, "get", headers_all, params_all, verbose=verbose)
+
+
+def mg_api_get(resource, headers=None, params=None, verbose=False):
+    # Set up MG headers and parameters, and make the call
+    headers_all = mg_headers  # Use base headers by default
+    if headers:  # Merge any additional optional headers
+        headers_all = {**mg_headers, **headers}
+    return api_call(resource, "get", headers_all, verbose=verbose)
+
+
+def api_call(resource, method=None, headers=None, params=None, data=None, verbose=False):
+    # Make API calls
+    try:
+        if verbose:
+            print("API CALL: %s" % (resource))
+            print("PARAMS  : %s" % (params))
+            print("HEADERS : %s" % (headers))
+            if data != None:
+                print("DATA    : %s" % (data))
+
+        if method == "get":
+            r = requests.get(resource, headers=headers, params=params).json()
+            if isinstance(r, int):  # Handle $count filter integer returns
+                return r
+        elif method == "delete":
+            r = requests.delete(resource, headers=headers, params=params).json()
+        elif method == "put":
+            r = requests.put(resource, headers=headers, params=params, data=data).json()
+
+        if verbose:
+            if 'error' in r:
+                print(r['error']['message'])
+        return r
+    except Exception as e:
+        print("Request error:\n%s" % (str(e)))
+        sys.exit(1)
+
+
+def object_count(t):
+    # Returns count of given object type (ARM or MG)
+    if t in ["d", "a", "s"]:
+        # Azure Resource Management (ARM) API does not have a dedicated '$count' object filter, so
+        # essentially, we're forced to retrieve all objects then count them. For simplicity, it is
+        # best to have a dedicate function that handles all that.
+        return len(get_all_objects(t))
+    elif t in ["u", "g", "sp", "ap"]:
+        # MS Graph API makes counting much easier with its dedicated '$count' filter
+        mg_headers.update({ 'ConsistencyLevel': 'eventual' })
+        return mg_api_get(mg_url + "/v1.0/" + oMap[t] + "/$count")
+    else:
+        print("Unsupported type:", t)
+        sys.exit(1)
+        return 0
+
+
+def load_file_yaml(filePath):
+    # Read/load/decode given filePath as some YAML object
+    try:
+        with open(filePath) as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        print("Error reading file '%s'" % (filePath))
+        sys.exit(1)
+
+
+def load_file_json(filePath):
+    # Read/load/decode given filePath as some JSON object
+    try:
+        with open(filePath) as f:
+            return json.load(f)
+    except Exception as e:
+        print("Error reading file '%s'" % (filePath))
+        sys.exit(1)
+
+
+def save_file_json(oList, filePath):
+    # Save given JSON object to given filePath
+    try:
+        with open(filePath, 'w') as f:
+            json.dump(oList, f)
+        os.chmod(filePath, 0o600)
+    except Exception as e:
+        print("Error writing '%s'" % (filePath))
+        sys.exit(1)
+
+
+def file_usable(f):
+    return os.path.exists(f) and file_size(f) > 0
+
+
+def file_exist(f):
+    return os.path.exists(f)
+
+
+def file_size(f):
+    return os.path.getsize(f)
+
+
+def get_object_memberofs(t, id):
+    # Get all group/role objects this object of type 't' with 'id' is a memberof
+    oList = []
+    r = mg_api_get(mg_url+"/beta/" + oMap[t]+ "/" + id + "/memberof")
+    if r["value"]:
+        oList = r["value"]
+    return oList
+
+
+def print_memberofs(t, memberOf):
+    # Print all memberof entries
+    # Object type t variable is for future use, to customize display based on type 
+    if len(memberOf) > 0:
+        print("memberof:")
+        for i in memberOf:
+            name = str_val(i, "displayName")
+            type = last_elem(str_val(i, "@odata.type"), ".")
+            id = str_val(i, "id")
+            print("  %-50s %s (%s)" % (name, id, type))
+    else:
+        print("%-28s %s" % ("memberof:", "None"))
+
+
+def remove_cache_file(t):
+    # Remove cache file for objects of type t, or all of them
+    filePath = ""
+    if t == "t":
+        filePath = os.path.join(confdir, "accessTokens.json")
+        remove_file(filePath)
+    elif t in ["d", "a", "s", "u", "g", "sp", "ap"]:
+        filePath = os.path.join(confdir, tenant_id + "_" + oMap[t] + ".json")
+        remove_file(filePath)
+        filePath = os.path.join(confdir, tenant_id + "_" + oMap[t] + "_deltaLink.json")
+        remove_file(filePath)
+    elif t == "all":
+        for t in oMap:
+            filePath = os.path.join(confdir, tenant_id + "_" + oMap[t] + ".json")
+            remove_file(filePath)
+            filePath = os.path.join(confdir, tenant_id + "_" + oMap[t] + "_deltaLink.json")
+            remove_file(filePath)
+    sys.exit(0)
+
+
+def rationalize_cache(inList):
+    oList = []
+    for x in inList:
+        if "@removed" not in x:
+            oList.append(x)
+
+    ###################################
+    # Need merge logic here
+    ###################################
+
+    return oList
+
+
+def get_all_objects(t):
+    # We are dealing with two (2) classes of objects:
+    # 1) AZ types = Azure RBAC definitions and assignments, and subscriptions objects.
+    # 2) MG types = MS Graph users, groups, service principals, and applications objects.
+    # The set of all AZ types per tenant can be relatively small and fast to retrieve, so
+    # we'll use a crude cachePeriod for local cache. On the other hand, the set of all
+    # MG types can be very large so we will rely on MG delta query methods to keep the
+    # local data store cached and in sync.
+
+    oList = []       # Start with an empty list
+    cachePeriod = 60 # In seconds. This should be configurable
+
+    # Define local data store file
+    localData = os.path.join(confdir, tenant_id + "_" + oMap[t] + ".json")
+    cacheFileAge = 0
+    if file_usable(localData):
+        cacheFileEpoc = int(os.path.getmtime(localData))
+        cacheFileAge = int(time.time()) - cacheFileEpoc # Now minus file age
+        l = load_file_json(localData)
+        if len(l) > 0:
+            oList = l
+
+    # Get all objects of type t
+    if t == "d":
+        if cacheFileAge > cachePeriod and len(oList) < 1:
+            oList = get_role_definitions() # Get all role definitions from Azure
+            save_file_json(oList, localData) # Cache to local file
+    elif t == "a":
+        if cacheFileAge > cachePeriod and len(oList) < 1:
+            oList = get_role_assignments() # Get all role assignments from Azure
+            save_file_json(oList, localData) # Cache to local file
+    elif t == "s":
+        if cacheFileAge > cachePeriod and len(oList) < 1:
+            # Get all subscriptions from Azure
+            r = az_api_get(az_url + "/subscriptions")
+            if 'value' in r and len(r['value']):
+                oList = oList + r['value'] # Concatenate to main list
+                save_file_json(oList, localData) # Cache to local file
+    elif t in ["u", "g", "sp", "ap"]:
+        # Set up file to store delta link, to use delta query method.
+        # See https://docs.microsoft.com/en-us/graph/delta-query-overview
+        deltaLinkFile = os.path.join(confdir, tenant_id + "_" + oMap[t] + "_deltaLink.json")
+        if file_usable(deltaLinkFile) and len(oList) > 0:
+            # DELTA query
+            deltaLinkMap = load_file_json(deltaLinkFile)
+            deltaLink = deltaLinkMap["@odata.deltaLink"]
+            headers = { "Prefer" : "return=minimal" }
+            r = mg_api_get(deltaLink, headers=headers)
+            if 'value' in r and len(r['value']):
+                deltaList = r['value']
+                if len(deltaList) > 0:
+                    # New objects returned, let's run our merge logic
+                    print("Delta count = %d\n" % len(deltaList))
+                    oList = oList + deltaList        # Concatenate cached set with delta set
+                    oList = rationalize_cache(oList) # Clean up cache and run merge logic
+                    print("Azure count = %d\n" % object_count(t))
+                    print("Local count = %d\n" % len(oList))
+                    save_file_json(oList, localData) # Cache it to local file
+                # No new objects, let's use local data store
+        else:
+            # REGULAR full query
+            oList = [] # Start with empty set of objects
+            azureCount = object_count(t)
+
+            if azureCount > 1000:
+                print("%d objects to get." % (azureCount), flush=True)
+
+            r = mg_api_get(mg_url + "/v1.0/" + oMap[t] + "/delta")
+            while True:
+                # Infinite loop until deltalLink appears and nextLink is empty
+                print(len(oList), flush=True, end='\r')
+                if 'value' in r and len(r['value']) > 0:
+                    oList = oList + r["value"]   # Concatenate this set to growing list
+                if "@odata.nextLink" not in r:
+                    # If nextLink is empty it means we're done and there are no more records
+                    if "@odata.deltaLink" in r:
+                        # Save deltaLink for future delta query update
+                        deltaLinkMap = {"@odata.deltaLink": r["@odata.deltaLink"]}
+                        save_file_json(deltaLinkMap, deltaLinkFile) # Save deltaLink for future delta query update
+                        save_file_json(oList, localData)            # Save it cache file
+                        break # from infinite for loop
+                r = api_get(r["@odata.nextLink"])
+
+            if azureCount > 1000:
+                print("%d objects fetched." % (len(oList)), flush=True)
+
+    return oList
+
+
+def get_object_byid(t, id):
+    # Get object of type t, by id
+    x = None
+    if t in ["d", "a"]:
+        # First search at tenant level scope
+        o = az_api_get(az_url + "/providers/Microsoft.Authorization/" + oMap[t] + "/" + id)
+        if "error" not in o:
+            # Else search under each subscription scope
+            for sid in get_sub_ids():
+                o = az_api_get(az_url + "/subscriptions/" + sid + "/providers/Microsoft.Authorization/" + oMap[t] + "/" + id)
+                if "id" in o:
+                    break
+    elif t == "s":
+        o = az_api_get(az_url + "/" + oMap[t] + "/" + id)
+    elif t in ["u", "g", "sp", "ap"]:
+        o = mg_api_get(mg_url + "/beta/" + oMap[t] + "/" + id)
+    
+    return o
+
+
+def get_sub_ids():
+    sub_ids = []
+    for s in get_all_objects("s"):
+        if s["displayName"] == "Access to Azure Active Directory":
+            continue  # Skip legacy subscriptions (they have no role definitions)
+        sub_ids.append(s["subscriptionId"])
+    return sub_ids
+
+
+def get_sub_names():
+    subs = {}   # Build subscriptions id/name dictionary
+    for i in get_all_objects("s"):
+        subs.update({i["subscriptionId"]:i["displayName"]})
+    return subs
+
+
+def get_role_names():
+    roles = {}   # Build roles id/name dictionary
+    for i in get_all_objects("d"):
+        roles.update({i["name"]:i["properties"]["roleName"]})
+    return roles
+
+
+def get_role_definitions():
+    # Get all role definitions from Azure
+    oList = []
+
+    # See https://docs.microsoft.com/en-us/azure/role-based-access-control/role-definitions-list
+    # API $filter=AtScopeAndBelow() doesn't appear to be supported yet, so we're forced to dig into
+    # and grab definitions from each of the 4 different scopes:
+
+    #   Type               Scope URL path example
+    #   Management group   providers/Microsoft.Management/managementGroups/{groupId1}
+    #   Subscription       subscriptions/{subscriptionId1}
+    # 	Resource group     subscriptions/{subscriptionId1}/resourceGroups/myresourcegroup1
+    # 	Resource           subscriptions/{subscriptionId1}/resourceGroups/myresourcegroup1/providers/Microsoft.Web/sites/mysite1
+
+    # NOTE: This utility ONLY cares about definitions at the root of the tenant, and each of its subcriptions
+
+    # Step1: Get all role definitions at the root tenant, including all Microsoft Azure Built-In-Roles
+    uuids = []
+    url = az_url + "/providers/Microsoft.Management/managementGroups/" + tenant_id
+    url += "/providers/Microsoft.Authorization/roleDefinitions"
+    r = az_api_get(url)
+    if 'value' in r and r['value']:
+        for role in r['value']:
+            oList.append(role)
+            uuids.append(role['name'])  # NOTE that 'name' key is the role's UUID
+
+    # 2) Now get all CUSTOM roles under each subscription, ensuring uniqueness
+    for scope in get_sub_ids():
+        url = az_url + "/" + scope + "/providers/Microsoft.Authorization/roleDefinitions?$filter=type+eq+'CustomRole'"
+        r = az_api_get(url)
+        if 'value' in r and r['value']:
+            for role in r['value']:
+                if role['name'] in uuids:
+                    continue
+                oList.append(role)
+                uuids.append(role['name'])
+    return oList
+
+
+def print_role_definition(r):
+    if 'name' in r:
+        print("id:          ", r['name'])  # Name is the role id
+    if 'type' in r:
+        print("type:        ", r['type'])
+    if 'createdBy' in r['properties']:
+        print("createdBy:   ", r['properties']['createdBy'])
+    if 'createdOn' in r['properties']:
+        print("createdOn:   ", r['properties']['createdOn'])
+    if 'updatedBy' in r['properties']:
+        print("updatedBy:   ", r['properties']['updatedBy'])
+    if 'updatedOn' in r['properties']:
+        print("updatedOn:   ", r['properties']['updatedOn'])
+    print("\n# Role Definition")
+    print("roleName:    ", r['properties']['roleName'])
+    print("description: ", r['properties']['description'])
+
+    if 'assignableScopes' in r['properties']:
+        print("assignableScopes:")
+        for i in r['properties']['assignableScopes']:
+            print("  -", i)    
+    else:
+        print("assignableScopes: []")
+
+    if 'permissions' in r['properties']:
+        print("permissions:")
+
+        perms = r['properties']['permissions'][0]
+
+        ac = perms['actions']
+        if len(ac) > 0:
+            print("   actions:")        
+            for i in ac:
+                print("    -", i)
+        else:
+            print("   actions: []")
+        
+        da = perms['dataActions']
+        if len(da) > 0:
+            print("   dataActions:")        
+            for i in da:
+                print("    -", i)
+        else:
+            print("   dataActions: []")
+        
+        na = perms['notActions']
+        if len(na) > 0:
+            print("   notActions:")        
+            for i in na:
+                print("    -", i)
+        else:
+            print("   notActions: []")
+        
+        nda = perms['notDataActions']
+        if len(nda) > 0:
+            print("   notDataActions:")        
+            for i in nda:
+                print("    -", i)
+        else:
+            print("   notDataActions: []")
+        
+
+def print_sub_details(r):
+    # Print details of all other subscriptions in assignableScopes
+    scopes = r['properties']['assignableScopes']
+    if len(scopes) > 0:
+        for s in scopes:
+            if '/subscriptions/' in s:
+                print("==== SUBSCRIPTIONS DETAILS ============")
+                break
+        subs = get_all_objects("s")
+        for scope in scopes:
+            if 'subscriptions' not in scope:  # Skip for non-subscription scopes
+                continue
+            for s in subs:
+                scope_uuid = scope.split('/')[2]
+                sub_uuid = str(s['id'].split('/')[2])
+                if scope_uuid == sub_uuid:
+                    print("%-8s [%-8s] %s" % (s['displayName'], s['state'], scope))
+
+
+
+def compare_specfile(t, specfile):
+    # Compare object of type t defined in specfile f with what's really in Azure
+    if t == "d":
+        role = load_file_json(specfile)
+        role_name = role["properties"]["roleName"]
+        print("==== SPECFILE ===========================")
+        print_json(role)
+        print("==== AZURE ==============================")
+        
+        # Search for role in all scopes defined in specfile
+        not_found = True
+        for scope in role["properties"]["assignableScopes"]:
+            r = az_api_get(az_url + "/" + scope + "/providers/Microsoft.Authorization/roleDefinitions?$filter=roleName+eq+'" + role_name + "'")
+            if "value" in r and len(r["value"]) == 1 and "id" in r["value"][0]:
+                not_found = False
+                print_json(r["value"][0])
+                print_sub_details(r["value"][0])
+                break   # Break loop on FIRST match, since any other subsequent match will be exactly the same.
+        if not_found:
+            print("roleName '%s' does not exist in scopes defined in specfile" % (role_name))
+    elif t == "a":
+        x = load_file_yaml(specfile)
+        if "properties" not in x or "roleDefinitionId" not in x["properties"]:
+            print("Invalid YAML specfile")
+            return
+        print("==== SPECFILE ============================")
+        print_object("a", x)
+
+        roleId = x["properties"]["roleDefinitionId"].split("/")[-1]
+        principalId = str_val(x["properties"], "principalId")
+        scope = str_val(x["properties"], "scope")
+        if scope == "":
+            scope = str_val(x["properties"], "Scope")
+
+        # Search for role assignment for principalID and scope defined in specfile
+        url = az_url + scope + "/providers/Microsoft.Authorization/roleAssignments?$filter=principalId+eq+'" + principalId + "'"
+        r = az_api_get(url)
+        if "value" in r and len(r["value"]) > 0:
+            for a in r["value"]:
+                azRoleId = a["properties"]["roleDefinitionId"].split("/")[-1]
+                azPrincipalId = str_val(a["properties"], "principalId")
+                azScope = str_val(a["properties"], "scope")
+                if azRoleId == roleId and azPrincipalId == principalId and azScope == scope:
+                    print("==== AZURE ===============================")
+                    print_object("a", a)
+        else:
+            print("==== AZURE ===============================")
+            print("Role assignment defined in specfile does not exists in Azure")
+    else:
+        print("This option is not yet available.")
+
+
+def get_role_assignments():
+    # Get all role assigments from Azure
+    assignments = []
+
+    # See https://docs.microsoft.com/en-us/rest/api/authorization/role-assignments/list
+
+    # Step1: Get all role assignments at the root tenant
+    uuids = []  # Keep track of each unique role assignment to whittle out repeats that come up in lower scopes
+    # Wait? Do they really repeat, like definitions?
+
+    url = az_url + "/providers/Microsoft.Management/managementGroups/" + tenant_id
+    url += "/providers/Microsoft.Authorization/roleAssignments"
+    r = az_api_get(url)
+    if 'value' in r and r['value']:
+        for a in r['value']:
+            assignments.append(a)
+            uuids.append(a['name'])  # NOTE that 'name' key is the role's UUID
+
+    # 2) Now get all role assignments under each subscription, ensuring uniqueness
+    scopes = get_sub_ids()
+    for scope in scopes:
+        r = az_api_get(az_url + "/" + scope + "/providers/Microsoft.Authorization/roleAssignments")
+        if 'value' in r and r['value']:
+            for a in r['value']:
+                if a['name'] in uuids:
+                    continue
+                assignments.append(a)
+                uuids.append(a['name'])
+    return assignments
+
+
+def print_all_assignments_csv(assignments):
+    roles = get_role_names()
+    subs = get_sub_names()
+    groups = get_group_names()
+    users = get_user_names()
+    sps = get_sp_names()
+    apps = get_app_names()
+
+    csv_file = "assignments-" + str(int(time.time())) + ".csv"
+    f = open(csv_file, "w")
+
+    for a in assignments:
+        # Role definition name
+        role = roles[a["properties"]["roleDefinitionIs"].split("/")[-1]]
+
+        # Scope
+        scopes = a["properties"]["scope"].split("/")
+        if scopes[1] == "subscriptions":
+            # Map subscription Id to its name + the rest of the resource path 
+            scope = subs[scopes[2]] + " " + "/".join(scopes[3:])
+        else:
+            scope = scopes[-1]
+
+        onprem_groups = ""
+        pid = a["properties"]["principalId"]
+        ptype = a["properties"]["principalType"]
+        if ptype.lower() == "group":
+            if pid in groups.keys():
+                principal_name = groups[pid]
+                # Get on-prem group members
+                r = mg_api_get(mg_url + "/beta/groups/" + pid + "/members")
+                if "value" in r and len(r["value"]) > 0:
+                    for i in r["value"]:
+                        if i["@data.type"].split(".")[-1].lower() == "group":
+                            if i["onPremisesSecurityIdentifier"]:
+                                # We only care about On-Prem AD groups. This attrib means it is one.
+                                onprem_groups = onprem_groups + i["displayName"] + ","
+            else:
+                principal_name = pid
+        elif ptype.lower() == "user":
+            if pid in users.keys():
+                principal_name = users[pid]
+            else:    
+                principal_name = pid
+        elif ptype.lower() == "serviceprincipal":
+            if pid in sps.keys():
+                principal_name = sps[pid]
+            elif pid in apps.keys():
+                principal_name = apps[pid]
+            else:    
+                principal_name = pid
+        else:
+            type = "Unknown"
+            principal_name = pid
+        onprem_groups = onprem_groups.strip(",")
+        scope = scope.strip()
+        print("[%-20s] %s|%s|%s|%s|%s" % (datetime.now(), role, principal_name, ptype, onprem_groups, scope), flush=True)
+        f.write('"%s","%s","%s","%s","%s"\n' % (role, principal_name, ptype, onprem_groups, scope))
+
+
+def print_role_assignment(a):
+    if "name" in a:
+        print("id:       ", a["name"])
+    if "createdBy" in a["properties"]:
+        print("createdBy:", a["properties"]["createdBy"])
+    if "createdOn" in a["properties"]:
+        print("createdOn:", a["properties"]["createdOn"])
+    if "updatedBy" in a["properties"]:
+        print("updatedBy:", a["properties"]["updatedBy"])
+    if "updatedOn" in a["properties"]:
+        print("updatedOn:", a["properties"]["updatedOn"])
+    print("properties:")
+    if "Description" in a:
+        print("  Description:", a["properties"]["Description"])
+    if "description" in a:
+        print("  description:", a["properties"]["description"])
+    if "Scope" in a:
+        print("  Scope:", a["properties"]["Scope"])
+    if "scope" in a:
+        print("  scope:", a["properties"]["scope"])
+    print("  principalId:", a["properties"]["principalId"])
+    print("  roleDefinitionId:", a["properties"]["roleDefinitionId"])
+
+
+def print_user(u):
+    # Note: Some attributes are only available if object retrieve with beta version
+    print("displayName:                  ", u["displayName"])
+    print("userPrincipalName:            ", u["userPrincipalName"].lower())
+    print("id:                           ", u["id"])
+    if "onPremisesDomainName" in u and u["onPremisesDomainName"]:
+        print("onPremisesDomainName:        ", u["onPremisesDomainName"])
+    if "onPremisesSamAccountName" in u and u["onPremisesSamAccountName"]:
+        print("onPremisesSamAccountName:    ", u["onPremisesSamAccountName"])
+    if "onPremisesUserPrincipalName" in u and u["onPremisesUserPrincipalName"]:
+        print("onPremisesUserPrincipalName: ", u["onPremisesUserPrincipalName"])
+    if "otherMails" in u and len(u["otherMails"]) > 0:
+        print("otherMails:                    ", end='')
+        for e in u["otherMails"]:
+            print("%s  " % (e), end='')
+        print("")
+    print("createdDateTime:              ", u["createdDateTime"])
+
+    r = mg_api_get(mg_url + "/beta/users/" + u["id"] + "/memberof")
+    if "value" in r and len(r["value"]) > 0:
+        print("memberof:")
+        for g in r["value"]:
+            id = g["id"]
+            type = g["@odata.type"].split(".")[-1]
+            if type == "group":
+                name = g["displayName"]
+                print("  %-60s %s" % (name, id))
+    else:
+        print("memberof:                 None")
+
+
+def get_user_names():
+    users = {}   # Build users id/name dictionary
+    for i in get_all_objects("u"):
+        users.update({i["id"] : i["displayName"]})
+    return users
+
+
+def get_group_names():
+    groups = {}   # Build groups id/name dictionary
+    for i in get_all_objects("g"):
+        groups.update({i["id"] : i["displayName"]})
+    return groups
+
+
+def print_group(g):
+    print("displayName:                  ", g["displayName"])
+    print("description:                  ", g["description"])
+    print("id:                           ", g["id"])
+    print("isAssignableToRole:           ", g["isAssignableToRole"])
+
+    r  = mg_api_get(mg_url + "/beta/groups" + g["id"] + "/owners")
+    if "value" in r and len(r["value"]) > 0:
+        print("owners:")
+        for i in r["value"]:
+            print("  %-50s %s" % (g["userPrincipalName"], g["id"]))
+    else:
+        print("owners:                    None")
+
+    r  = mg_api_get(mg_url + "/beta/groups" + g["id"] + "/members")
+    if "value" in r and len(r["value"]) > 0:
+        print("members:")
+        for m in r["value"]:
+            id = m["id"]
+            type = m["@odata.type"].split(".")[-1]
+            if type == "user":
+                name = m["userPrincipalName"]
+            elif type == "group":
+                name = m["displayName"]
+            elif type == "servicePrincipal":
+                if m["servicePrincipalType"] == "ManagedIdentity":
+                    type = "MI"
+                    name = m["alternativeNames"][1].split("/")[-1]
+                elif m["servicePrincipalType"] == "Application":
+                    type = "APP"
+                    name = m["displayName"]
+                else:
+                    type = "??"
+                    name = "??"
+            else:
+                type = "??"
+                name = "userPrincipalName"
+            print("  %-50s %s (%s)" % (name, id, type))
+    else:
+        print("members:                   None")
+
+
+def get_sp_names():
+    pass
+
+
+def print_sp(x):
+    if "id" not in x:
+        return
+
+    # Print the most important attributes first
+    for i in ["displayName", "id", "appId", "accountEnabled", "createdDateTime", "servicePrincipalType"]:
+        print("%-28s %s" % (i+":", str_val(x, i)))
+
+    # Print owners
+    r = mg_api_get(mg_url + "/beta/servicePrincipals/" + x['id'] + "/owners")
+    if 'value' in r and len(r['value']):
+        print("owners:")
+        for i in r['value']:
+            type = last_elem(i['@odata.type'], '.')
+            if type == 'user':
+                name = i['userPrincipalName']
+            elif type == 'group':
+                name = i['displayName']
+            elif type == 'servicePrincipal':
+                name = i['servicePrincipalType']
+            else:
+                name = '??'
+            print("  %-50s %s (%s)" % (name, i['id'], type))
+    else:
+        print("%-28s %s" % ("owners:", "None"))
+
+    # Print members and their roles
+    r = mg_api_get(mg_url + "/beta/servicePrincipals/" + x['id'] + "/appRoleAssignedTo")
+    if "value" in r and len(r["value"]):
+        print("members:")
+
+        # Build roleMap
+        roleMap = {}
+        if "appRoles" in x and x["appRoles"]:
+            for i in x["appRoles"]:
+                roleMap.update({i["id"] : str_val(i, "displayName")})
+        # Add Default Access role
+        roleMap.update({"00000000-0000-0000-0000-000000000000" : "Default Access"})
+
+        for i in r["value"]:
+            principalName = str_val(i, "principalDisplayName")
+            roleName = roleMap[str_val(i, "appRoleId")] # Reference role name
+            principalId = str_val(i, "principalId")
+            principalType = str_val(i, "principalType")
+            print("  %-50s %-20s %s (%s)" % (principalName, roleName, principalId, principalType))
+
+    else:
+        print("%-28s %s" % ("members:", "None"))
+
+    # Print all groups/roles it is a member of
+    memberOf = get_object_memberofs("sp", x['id']) # For this App object
+    print_memberofs("sp", memberOf)
+
+    # Print API permissions
+    r = mg_api_get(mg_url + "/beta/servicePrincipals/" + x["id"] + "/appRoleAssignments")
+    if "value" in r and len(r["value"]):
+        print("api_permissions:")
+        apiPerms = r["value"]
+
+        # Getting API app role permission name, such as Directory.Read.All, is a 2-step process:
+        # 1) Put all all the API "app role id":names pairs in a map.
+        #    We do one loop to preprocess id:names, so we can cache and speeds things up.
+        # 2) Do another loop to enumerate and print them
+
+        # Create unique list of all API IDs
+        apiIds = []
+        for i in apiPerms:
+            id = str_val(i, "resourceId")
+            if id in apiIds:
+                continue # This API ID is already in our growing list. Skip it and check the next one
+            apiIds.append(id)
+
+        # Create unique map of all API app role ID + name pairs
+        apiRoles = {}
+        for resId in apiIds:
+            r = mg_api_get(mg_url + "/beta/servicePrincipals/" + resId)
+            if "appRoles" in r and r["appRoles"]:
+                for i in r["appRoles"]:  # Iterate through all roles
+                    if "id" in i and "value" in i: 
+                        apiRoles.update({i["id"] : str_val(i, "value")})  # Add entry to map
+
+        # Print them
+        for perm in apiPerms:
+            apiName = str_val(perm, "resourceDisplayName") # This API's name
+            resId = str_val(perm, "resourceId")            # This API's object id
+
+            if resId:
+                pid = str_val(perm, "appRoleId") # App role ID
+                print("  %-50s %s" % (apiName, apiRoles[pid]))
+            else:
+                print("  %-50s %s" % (apiName, "(Missing resourceId)"))
+
+
+def get_app_names():
+    pass
+
+
+def print_app(x):
+    if "id" not in x:
+        return
+
+    # Print the most important attributes first
+    for i in ["displayName", "appId", "id", "createdDateTime"]:
+        print("%-28s %s" % (i+":", str_val(x, i)))
+
+    # OPTIONAL: You can print other attributes here
+
+    # Print owners
+    r = mg_api_get(mg_url + "/beta/applications/" + x['id'] + "/owners")
+    if 'value' in r and len(r['value']):
+        print("owners:")
+        for i in r['value']:
+            type = last_elem(i['@odata.type'], '.')
+            if type == 'user':
+                name = i['userPrincipalName']
+            elif type == 'group':
+                name = i['displayName']
+            elif type == 'servicePrincipal':
+                name = i['servicePrincipalType']
+            else:
+                name = '??'
+            print("  %-50s %s (%s)" % (name, i['id'], type))
+    else:
+        print("%-28s %s" % ("owners:", "None"))
+
+    # Print all groups/roles it is a member of
+    memberOf = get_object_memberofs("ap", x['id']) # For this App object
+    print_memberofs("ap", memberOf)
+
+    # Print API permissions
+    # Just look under this app 'x' object attribute 'requiredResourceAccess'
+    
+    if 'requiredResourceAccess' in x and len(x['requiredResourceAccess']):
+        print("api_permissions:")
+        APIs = x['requiredResourceAccess']
+        # There could be multiples APIs, so let's process them one by one
+        for api in APIs:
+
+            # Getting this API's name and permission value such as Directory.Read.All is a 2-step process:
+            # 1) Get all the roles for given API and put their id/value pairs in a map, then
+            # 2) Use that map to enumerate and print them
+
+            if "resourceAppId" not in api:
+                print("  %-50s %s" % ("Unknown API", "Missing resourceAppId"))
+                continue # Skip this API, move on to next one
+
+            # Let's drill down into the permissions for this API
+            resourceAppId = api['resourceAppId']
+
+            # Get this API's SP object with all relevant attributes
+            r = mg_api_get(mg_url + "/beta/servicePrincipals?filter=appId+eq+'" + resourceAppId + "'")
+            # Unclear why result is a list instead of a single entry
+
+            if 'value' not in r:
+                print("  %-50s %s" % (resourceAppId, "Unable to get Resource App object. Skipping this API."))
+                continue
+
+            if len(r['value']) > 1:
+                print("  %-50s %s" % (resourceAppId, "Error. Multiple SPs for this AppId. Aborting."))
+                sys.exit(1)
+
+            sp = r['value'][0] # Process the only expected entry
+
+            # 1. Put all API role id:name pairs into roleMap list
+            roleMap = {}
+            if "appRoles" in sp and len(sp["appRoles"]):
+                # These are for Application types
+                for i in sp["appRoles"]:
+                    roleMap.update({i["id"] : i["value"]})
+            if "publishedPermissionScopes" in sp and len(sp["publishedPermissionScopes"]):
+                # These are for Delegated types
+                for i in sp["publishedPermissionScopes"]:
+                    roleMap.update({i["id"] : i["value"]})
+            if not roleMap:
+                print("  %-50s %s" % (resourceAppId, "Error getting list of appRoles for this API"))
+                continue
+
+            # 2. Parse this app permissions, and use roleMap to display permission value
+            if 'resourceAccess' in api and len(api["resourceAccess"]):
+                apiName = sp["displayName"] # This API's name
+                for i in api["resourceAccess"]:
+                    print("  %-50s %s" % (apiName, roleMap[i['id']]))
+            else:
+                print("  %-50s %s" % (resourceAppId, "Error getting list of appRoles."))
+
+
+def print_subscription(x):
+    # Print subscription object in YAML-like style format
+    if "id" not in x:
+        return
+    for i in ["displayName", "subscriptionId", "state", "tenantId"]:
+        print("%-20s %s" % (i+":", str_val(x, i)))
+
+
+def print_object(t, x):
+    if t == "d":
+        print_role_definition(x)
+    elif t == "a":
+        print_role_assignment(x)
+    elif t == "s":
+        print_subscription(x)
+    elif t == "u":
+        print_user(x)
+    elif t == "g":
+        print_group(x)
+    elif t == "sp":
+        print_sp(x)
+    elif t == "ap":
+        print_app(x)
+
+
+def get_idname_map(t):
+    # Return id/name map for given object type t
+    oMap = {}
+    for i in get_all_objects(t): # Iterate through all objects
+        if t == "d":
+            # Role definitions
+            if "name" in i:
+                xProps = i["properties"]
+                if "roleName" in xProps:
+                    # Add them to map
+                    oMap.update({ i["name"]: xProps["roleName"] })
+        elif t == "s":
+            # Subscriptions
+            if "subscriptionId" in i and "displayName" in i:
+                oMap.update({ i["subscriptionId"]: xProps["displayName"] })
+        elif t in ["u", "g", "sp", "ap"]:
+            # MS Graph objects all use same Id and displayName attributes
+            if "id" in i and "displayName" in i:
+                oMap.update({ i["id"]: xProps["displayName"] })
+    return oMap
+
+
+def print_matching(t, name):
+    # List all objects of type t whose displayName matches name
+    oList = []
+    if t == "d":
+        for x in get_all_objects(t):
+            xProps = x["properties"]
+            if "roleName" in xProps:
+                if name in xProps["roleName"]:
+                    oList.append(x)
+    elif t == "a":
+        roleMap = get_idname_map("d")
+        for x in get_all_objects(t):
+            xProps = x["properties"]
+            if "roleDefinitionId" in xProps:
+                Rid = xProps["roleDefinitionId"]
+                roleName = roleMap[last_elem(Rid, "/")]
+                if name in roleName:
+                    oList.append(x)
+    elif t == "u":
+        for x in get_all_objects(t):
+            if "displayName" in x and name in x["displayName"]:
+                oList.append(x)
+            elif "userPrincipalName" in x and name in x["userPrincipalName"]:
+                oList.append(x)
+            elif "mailNickname" in x and name in x["mailNickname"]:
+                oList.append(x)
+    elif t in ["s", "g", "sp", "ap"]:
+        for x in get_all_objects(t):
+            if "displayName" in x and name in x["displayName"]:
+                oList.append(x)
+
+    match_count = len(oList)
+    if match_count == 1:
+        print_object(t, oList[0]) # Grab and print single object
+    elif match_count > 1:
+        for i in oList:  # Iterate through all matching objects
+            print_tersely(t, i)
+
+
+def print_pags():
+    # List all Privileged Access Groups
+    for x in get_all_objects("g"):
+        # Iterate through all objects
+        if str_val(x, "isAssignableToRole") != "":
+            print_tersely("g", x) # Print group tersely
+
+
+def str_val(x, attrib):
+    # Return the best string value for given attribute within object x
+    if attrib in x and x[attrib]:
+        return x[attrib]
+    return "" # Blank if nil
+
+
+def last_elem(x, splitter):
+    return x.split(splitter)[-1]  # Split string, and return last element
+
+
+def print_tersely(t, x):
+    # List tersely this single object of type t
+    if t == "d":
+        Id = str_val(x, "name") # This is the role definition's UUID
+        Props = x["properties"]
+        Type = str_val(Props, "type")
+        Name = str_val(Props, "roleName")
+        print("%s  %-60s  %s" %(Id, Name, Type))
+    elif t == "a":
+        Id = str_val(x, "name") # This is the role assignment's UUID
+        Props = x["properties"]
+        RoleId = last_elem(str_val(Props, "roleDefinitionId"), "/")
+        PrincipalId = str_val(Props, "principalId")
+        PrinType = str_val(Props, "principalType")
+        Scope = str_val(Props, "scope")
+        print("%s  %s  %s %-20s %s" % (Id, RoleId, PrincipalId, "("+PrinType+")", Scope))
+    elif t == "s":
+        Id = str_val(x, "subscriptionId")
+        State = str_val(x, "state")
+        Name = str_val(x, "displayName")
+        print("%s  %-10s  %s" % (Id, State, Name))
+    elif t in ["u", "g", "sp", "ap"]:
+        Id = str_val(x, "id")
+        Name = str_val(x, "displayName")
+        AppId = str_val(x, "appId")
+        Type = str_val(x, "servicePrincipalType")
+        if t in ["u", "g"]:
+            #print("%s  %s" % (Id.encode("utf-8"), Name.encode("utf-8")))
+            print("%s  %s" % (Id, Name))
+        elif t == "sp":
+            print("%s  %-60s %-22s %s" % (Id, Name, Type, AppId))
+        elif t == "ap":
+            print("%s  %-60s %s" % (Id, Name, AppId))
+
+
+def print_all_tersely(t):
+    for x in get_all_objects(t):
+        print_tersely(t, x)
+
+
+def print_all_json(t):
+    print_json(get_all_objects(t))
+
+
+def print_json(r):
+    print(json.dumps(r, indent=2))
+
+
+def print_yaml(r):
+    yaml.safe_dump(r, sys.stdout, default_flow_style=False)
+
+
+def remove_file(f):
+    if file_exist(f):
+        os.remove(f)
+
+
+def main(args = None):
+    number_of_args = len(sys.argv[1:]) # Not including the program itself
+    if number_of_args not in [1, 2]:
+        print_usage()  # Don't accept less than 1 or more than 2 argument
+    
+    global confdir # We're updating a global variable
+    if os.environ['HOME']:
+        confdir = os.path.join(os.environ['HOME'], "." + prgname)
+        if not file_exist(confdir):
+            os.makedirs(confdir)
+            os.chmod(confdir, 0o700)
+    else:
+        print("Missing HOME environment variable")
+        sys.exit(1)
+
+    if number_of_args == 1:  # One-argument requests
+        arg1 = sys.argv[1].lower() # Always treat 1st argument as Lowercase, to ease comparisons
+
+        setup_credentials() # Set up tenant ID and credentials
+
+        if arg1 == "-v":
+            print_usage()
+        elif arg1 in ["-tx", "-dx", "-ax", "-sx", "-ux", "-gx", "-spx", "-apx"]:
+            remove_cache_file(arg1[1:-1]) # Chop off last character to leverage oMap dictionary
+        elif arg1 == "-xx":
+            remove_cache_file("all")
+
+        # Remaining requests need AZ and MG API tokens
+        setup_az_token()
+        setup_mg_token()
+
+        # Handle the three(3) primary single-argument list functions for all object types
+        if arg1 in ["-dc", "-ac", "-sc", "-uc", "-gc", "-spc", "-apc"]:    # Handle count of all objects
+            print(object_count(arg1[1:-1]))                                # Single out the object type, get its count, print it
+        elif arg1 in ["-dj", "-aj", "-sj", "-uj", "-gj", "-spj", "-apj"]:  # Handle JSON-printing of all objects 
+            print_all_json(arg1[1:-1])
+        elif arg1 in ["-d", "-a", "-s", "-u", "-g", "-sp", "-ap"]:         # Handle tersely printing for all objects
+            print_all_tersely(arg1[1:])
+        # Handle others functions
+        elif arg1 == "-ar":
+            print_all_assignments_csv("a")
+        elif arg1 == "-pags":
+            print_pags()
+        elif arg1 == "-z":
+            dump_variables()
+        else:
+            print("This option is not yet available.")
+    
+    else:    # Two-argument requests
+        arg1 = sys.argv[1].lower()
+        arg2 = sys.argv[2]
+
+        setup_credentials() # Set up tenant ID and credentials
+        # Remaining requests need AZ and MG API tokens
+        setup_az_token()
+        setup_mg_token()
+
+        if arg1 in ["-dj", "-aj", "-sj", "-uj", "-gj", "-spj", "-apj"]:
+            t = arg1[1:-1] # Single out our object type letter (see oMap)
+            if valid_uuid(arg2):
+                # Get single object by ID and print in JSON format
+                print_json(get_object_byid(t, arg2))
+        elif arg1 in ["-d", "-a", "-s", "-u", "-g", "-sp", "-ap"]:
+            t = arg1[1:]   # Single out our object type letter (see oMap)
+            if valid_uuid(arg2):
+                # Get single object by ID and print in YAML-like format
+                print_object(t, get_object_byid(t, arg2))
+            elif file_exist(arg2) and file_size(arg2) > 0:
+                compare_specfile(t, arg2)
+            else:
+                print_matching(t, arg2)
+        else:
+            print("This option is not yet available.")
+
+if __name__ == '__main__':
+    main()
