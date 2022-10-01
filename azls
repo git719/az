@@ -470,22 +470,42 @@ def get_role_names():
 
 
 def get_role_definitions():
-    # Get all role definitions from Azure
+    # Get all role definitions that are available to use in current tenant 
+
+    # IMPORTANT: Presently (October 2022), the RBAC API $filter=AtScopeAndBelow() does NOT work as
+    # documented at https://learn.microsoft.com/en-us/azure/role-based-access-control/role-definitions-list.
+    # This means that anyone searching for a comprehensive list of ALL role definitions within an Azure tenant
+    # is forced to do this in a piecemeal, cumulative fashion. The search must start at the Tenant Root Group
+    # scope level, then proceed through EACH lower subscope within the hierarchy. This entails building a list
+    # of all MGs at the root and searching for all roles DEFINED there; then building a list of all subscriptions
+    # within each of those MGs and gettting all roles defined in them; then repeating for all resource groups
+    # within each subscription, and so on. The hierarchy is something like:
+    #
+    #   PATH               EXAMPLE
+    #   Tenant Root Group  /providers/Microsoft.Management/managementGroups/{myTenantId}
+    #   Management Group   /providers/Microsoft.Management/managementGroups/{groupId1}
+    #   Subscription       /subscriptions/{subscriptionId1}
+    # 	Resource Group     /subscriptions/{subscriptionId1}/resourceGroups/{myResourceGroup1}
+    # 	Resource           /subscriptions/{subscriptionId1}/resourceGroups/{myResourceGroup1}/providers/Microsoft.Web/sites/mySite1
+    #
+    # Note that because Microsoft Azure BUILT-IN roles are defined universally, at scope "/", they are all
+    # gathered on the initial Tenant Root Group search. That means these comments are predominantly about CUSTOM
+    # roles that a customer is likely to define within their respective tenant.
+    #
+    # The best practice a customer can follow is to define ALL of their custom roles as universally as possible,
+    # at the highest scope, the Tenant Root Group scope. That way, they are "visible" and therefore consumable
+    # anywhere witin the tenant. As of this writing, Microsoft Azure still has a limitation whereby any custom
+    # role having DataAction or NotDataAction CANNOT be defined at any MG scope level, and that prevents this
+    # good practice. Microsoft is actively working to lift this restriction, see: 
+    # https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles
+
+    # There may be customers out there who at some point decided to define some of their custom roles within some
+    # of the hidden subscopes, and that's the reason why this utility follows this search algorithm to gather
+    # the full list of roles definitions. Note however, that this utility ONLY searches as deep as subscriptions,
+    # so if there are role definitions hidden within Resource Groups or individual resoures it will MISS them.
+    
+    # Step 1: Get all role definitions at the root tenant, including all Microsoft Azure Built-In-Roles
     oList = []
-
-    # See https://docs.microsoft.com/en-us/azure/role-based-access-control/role-definitions-list
-    # API $filter=AtScopeAndBelow() doesn't appear to be supported yet, so we're forced to dig into
-    # and grab definitions from each of the 4 different scopes:
-
-    #   Type               Scope URL path example
-    #   Management group   providers/Microsoft.Management/managementGroups/{groupId1}
-    #   Subscription       subscriptions/{subscriptionId1}
-    # 	Resource group     subscriptions/{subscriptionId1}/resourceGroups/myresourcegroup1
-    # 	Resource           subscriptions/{subscriptionId1}/resourceGroups/myresourcegroup1/providers/Microsoft.Web/sites/mysite1
-
-    # NOTE: This utility ONLY cares about definitions at the root of the tenant, and each of its subcriptions
-
-    # Step1: Get all role definitions at the root tenant, including all Microsoft Azure Built-In-Roles
     uuids = []
     url = az_url + "/providers/Microsoft.Management/managementGroups/" + tenant_id
     url += "/providers/Microsoft.Authorization/roleDefinitions"
@@ -495,7 +515,7 @@ def get_role_definitions():
             oList.append(role)
             uuids.append(role['name'])  # NOTE that 'name' key is the role's UUID
 
-    # 2) Now get all CUSTOM roles under each subscription, ensuring uniqueness
+    # Step 2: Now get all CUSTOM roles under each subscription, ensuring uniqueness
     for scope in get_sub_ids():
         url = az_url + "/" + scope + "/providers/Microsoft.Authorization/roleDefinitions?$filter=type+eq+'CustomRole'"
         r = az_api_get(url)
