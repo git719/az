@@ -100,11 +100,11 @@ def get_custom_role_definitions_in_tenant():
                 uuids.append(role['name'])
     return oList
 
-def has_data_actions(f):
+def has_data_actions(r):
     if "properties" in r:
         prop = r["properties"]
         if "permissions" in prop:
-            perms = prop["permissions"][0] # It's actually a list, but there's only one
+            perms = prop["permissions"][0] # It's actually a list, but there's only one element
             if "dataActions" in perms and len(perms["dataActions"]) > 0:
                 return True
             if "notDataActions" in perms and len(perms["notDataActions"]) > 0:
