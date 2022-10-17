@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+# print-all-custom-roles
+#
+# Based on code from https://github.com/git719/az/blob/main/azls
+
+import atexit
+import json
+import msal
+import os
+import requests
+import sys
+import time
+import uuid
+import yaml
+from datetime import datetime
+
+# Global variables
+prgname         = "azls"
+prgver          = "129"
+confdir         = ""
+tenant_id       = ""
+client_id       = ""
+client_secret   = ""
+authority_url   = ""
+mg_url          = "https://graph.microsoft.com"
+az_url          = "https://management.azure.com"
+mg_token        = {} 
+az_token        = {}
+mg_headers      = {}
+az_headers      = {}
+oMap            = {
+    "d":  "roleDefinitions",
+    "a":  "roleAssignments",
+    "s":  "subscriptions",
+    "u":  "users",
+    "g":  "groups",
+    "sp": "servicePrincipals",
+    "ap": "applications",
+}
+
+def api_call(resource, method=None, headers=None, params=None, data=None, verbose=False):
+    # Make API calls
+    try:
+        if verbose:
+            print("API CALL: %s" % (resource))
+            print("PARAMS  : %s" % (params))
+            print("HEADERS : %s" % (headers))
+            if data != None:
+                print("DATA    : %s" % (data))
+
+        if method == "get":
+            r = requests.get(resource, headers=headers, params=params).json()
+            if isinstance(r, int):  # Handle $count filter integer returns
+                return r
+        elif method == "delete":
+            r = requests.delete(resource, headers=headers, params=params).json()
+        elif method == "put":
+            r = requests.put(resource, headers=headers, params=params, data=data).json()
+
+        if verbose:
+            if 'error' in r:
+                print(r['error']['message'])
+        return r
+    except Exception as e:
+        print("Request error:\n%s" % (str(e)))
+        sys.exit(1)
+
+def az_api_get(resource, headers=None, params=None, verbose=False):
+    # Set up AZ headers and parameters, and make the call
+    headers_all = az_headers  # Use base headers by default
+    if headers:  # Merge any additional optional headers
+        headers_all = {**az_headers, **headers}
+    params_all = {'api-version': '2018-07-01'}  # Use base parameters by default
+    if params:  # Merge any additional optional parameters
+        params_all = {**params_all, **params}  # Merge params dict
+    return api_call(resource, "get", headers_all, params_all, verbose=verbose)
+
+def get_sub_ids():
+    sub_ids = []
+    subscriptions = az_api_get(az_url + "/subscriptions") # Get all subs in tenant
+    for s in subscriptions:
+        if s["displayName"] == "Access to Azure Active Directory":
+            continue  # Skip legacy subscriptions (they have no role definitions)
+        sub_ids.append(s["subscriptionId"])
+    return sub_ids
+
+def get_custom_role_definitions_in_tenant():
+    oList = []
+    uuids = []
+
+    # Parse each subscription looking for unique CUSTOM role definitions in each
+    for scope in get_sub_ids():
+        url = az_url + "/" + scope + "/providers/Microsoft.Authorization/roleDefinitions?$filter=type+eq+'CustomRole'"
+        r = az_api_get(url)
+        if 'value' in r and r['value']:
+            for role in r['value']:
+                if role['name'] in uuids:
+                    continue # Skip the role if we have already seen it
+                oList.append(role)
+                uuids.append(role['name'])
+    return oList
+
+def main(args = None):
+    roles = get_custom_role_definitions_in_tenant()
+    print(json.dumps(roles, indent=2))
+
+if __name__ == '__main__':
+    main()
