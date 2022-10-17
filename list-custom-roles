@@ -1,0 +1,126 @@
+#!/usr/bin/env python
+# list-custom-roles
+#
+# List all custom roles with dataAction permissions.
+#
+# Based on code from https://github.com/git719/az/blob/main/azls
+
+import json
+import msal
+import requests
+import sys
+
+# Global variables
+tenant_id       = "<TENANT_UUID"
+client_id       = "<APP_UUID>"
+client_secret   = "<SECRET:BAD_SECURITY_ONLY_FOR_TESTING!>"
+authority_url   = ""
+az_url          = "https://management.azure.com"
+az_token        = {}
+az_headers      = {}
+
+def get_token(scopes):
+    token = None
+    app = msal.ConfidentialClientApplication(
+        client_id,
+        authority=authority_url,
+        client_credential = client_secret,
+    )
+    try:
+        # Try getting cached token first
+        token = app.acquire_token_silent(scopes, account=None)
+        if not token:
+            try:
+                # Else, just get a new token
+                token = app.acquire_token_for_client(scopes=scopes)
+                if 'access_token' not in token:
+                    print('Error getting MS Graph token.')
+                    sys.exit(1)
+            except:
+                pass
+    except Exception as e:
+        print("Error acquiring token silently:\n%s" % (str(e)))
+    return token
+
+def setup_az_token():
+    global authority_url, az_token, az_headers # Update these global variables
+    authority_url = 'https://login.microsoftonline.com/' + tenant_id
+    az_token = get_token([az_url + '/.default'])
+    az_headers = {'Authorization': 'Bearer ' + az_token['access_token'], 'Content-Type': 'application/json'}
+
+def api_call(resource, method=None, headers=None, params=None, data=None):
+    try:
+        if method == "get":
+            r = requests.get(resource, headers=headers, params=params).json()
+            if isinstance(r, int):  # Handle $count filter integer returns
+                return r
+        elif method == "delete":
+            r = requests.delete(resource, headers=headers, params=params).json()
+        elif method == "put":
+            r = requests.put(resource, headers=headers, params=params, data=data).json()
+        return r
+    except Exception as e:
+        print("Request error:\n%s" % (str(e)))
+        sys.exit(1)
+
+def az_api_get(resource, headers=None, params=None):
+    # Set up AZ headers and parameters, and make the call
+    headers_all = az_headers  # Use base headers by default
+    if headers:  # Merge any additional optional headers
+        headers_all = {**az_headers, **headers}
+    params_all = {'api-version': '2018-07-01'}  # Use base parameters by default
+    if params:  # Merge any additional optional parameters
+        params_all = {**params_all, **params}  # Merge params dict
+    return api_call(resource, "get", headers_all, params_all)
+
+def get_sub_ids():
+    sub_ids = []
+    subs = az_api_get(az_url + "/subscriptions") # Get all subs in tenant
+    if "value" in subs:
+        for s in subs["value"]:
+            if s["displayName"] == "Access to Azure Active Directory":
+                continue  # Skip legacy subscriptions (they have no role definitions)
+            sub_ids.append(s["id"])
+    return sub_ids
+
+def get_custom_role_definitions_in_tenant():
+    oList = []
+    uuids = []
+
+    # Parse each subscription looking for unique CUSTOM role definitions in each
+    subs = get_sub_ids()
+    for sub_id in subs:
+        url = az_url + sub_id + "/providers/Microsoft.Authorization/roleDefinitions?$filter=type+eq+'CustomRole'"
+        r = az_api_get(url)
+        if 'value' in r and r['value']:
+            for role in r['value']:
+                if role['name'] in uuids:
+                    continue # Skip the role if we have already seen it
+                oList.append(role)
+                uuids.append(role['name'])
+    return oList
+
+def has_data_actions(f):
+    if "properties" in r:
+        prop = r["properties"]
+        if "permissions" in prop:
+            perms = prop["permissions"][0] # It's actually a list, but there's only one
+            if "dataActions" in perms and len(perms["dataActions"]) > 0:
+                return True
+            if "notDataActions" in perms and len(perms["notDataActions"]) > 0:
+                return True
+    return False
+
+def main(args = None):
+    setup_az_token()
+    data_action_role_list = []
+    roles = get_custom_role_definitions_in_tenant()
+    for r in roles:
+        if has_data_actions(r):
+            print(r["name"], r["properties"]["roleName"])
+            data_action_role_list.append(r)
+
+    #print(json.dumps(data_action_role_list, indent=2)) # Uncomment to see complete list in JSON
+
+if __name__ == '__main__':
+    main()
