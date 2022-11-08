@@ -1,5 +1,4 @@
 # App-Sp-Pair-Create.ps1
-
 # You may need to manually install the MS Graph module: Install-Module Microsoft.Graph
 
 param (
@@ -28,19 +27,19 @@ function CreateAppSP($name) {
     if ($problem) {
         Exit
     }
-    Write-Host "1) Creating a registered application, 2) generating a new secret for it, and 3) creating accompanying service principal ..."
+    Write-Host "... creating a same-name registered app + SP combo and a secret for that SP ..."
     $new_app = New-MgApplication -DisplayName $name # Optional: -Tags "key1 = value1, key2 = value2"
-    Write-Host "1) APP    : $($new_app.DisplayName) | AppId = $($new_app.AppId) | ObjectId = $($new_app.Id)"
 
     $passwordCred = @{
         displayName = (Get-Date)
         endDateTime = (Get-Date).AddMonths(12)
     }
     $secret = Add-MgApplicationPassword -ApplicationId $new_app.Id -PasswordCredential $passwordCred
-    Write-Host "2) SECRET : `"$($secret.SecretText)`" | Name = `"$($secret.DisplayName)`" | Expiry = `"$($secret.EndDateTime)`""
 
     $new_sp = New-MGServicePrincipal -AppId $new_app.AppId
-    Write-Host "3) SP     : $($new_sp.DisplayName) | AppId = $($new_sp.AppId) | ObjectId = $($new_sp.ID)"
+    Write-Host "APP/SP  = $($new_app.DisplayName)"
+    Write-Host "APPID   = $($new_sp.AppId)"
+    Write-Host "SECRET  = `"$($secret.SecretText)`" (PROTECT ACCORDINGLY!)"
 }
 
 # =================== MAIN ===========================
@@ -50,9 +49,7 @@ if ([string]::IsNullOrWhiteSpace($name)) {
     # Minimally we need a DisplayName
     print_usage
 }
-Write-Host "`n-------------- Parameters ------------"
-Write-Host "App/SP DisplayName   = `"$name`""
-Write-Host "Tenant_ID            = $tenant_id"
+Write-Host "TENANT    = $tenant_id"
 
 # Set up rquired scopes and connect to MS Graph
 $scopes = @(
@@ -67,9 +64,6 @@ Connect-MgGraph -Scope $scopes | Out-Null
 
 $sessionInfo = Get-MgContext
 $tenant_id = $sessionInfo.TenantId
-
-Write-Host "Tenant_ID            = $tenant_id"
-Write-Host "--------------------------------------"
 
 CreateAppSP $name
 
