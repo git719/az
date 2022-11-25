@@ -1,5 +1,4 @@
 # Group-Create.ps1
-
 # You may need to manually install the MS Graph module: Install-Module Microsoft.Graph
 
 param (
@@ -9,17 +8,18 @@ param (
     [switch] $assignable
 )
 
+function die($msg) {
+    Write-Host -ForegroundColor Yellow $msg ; Exit
+}
+
 function print_usage() {
-    Write-Host "Usage:"
-    Write-Host "  $prgName -name 'GroupDisplayname' [-description 'Description'] [-owner 'user@domain.com'] [-assignable]"
-    Exit
+    die "`nUsage:`n  $prgName -name 'GroupDisplayname' [-description 'Description'] [-owner 'user@domain.com'] [-assignable]"
 }
 
 function create_group ($name, $description, $owner, $assignable) {
     $id = (Get-MgGroup -ConsistencyLevel eventual -Search "DisplayName:$name").Id
     if ($null -ne $id) {
-        Write-Host -ForegroundColor Yellow "Group '$name' ($id) already exists. Aborting."
-        Exit
+        die "Group '$name' ($id) already exists. Aborting."
     }
     $properties = @{
         "displayName"        = $name;
@@ -40,7 +40,6 @@ if ([string]::IsNullOrWhiteSpace($name)) {
 Write-Host "============== Parameters ============"
 Write-Host "Group Name   = [$name]"
 Write-Host "Description  = [$description]"
-
 
 # Logon to MS Graph
 Connect-MgGraph -Scope "Group.ReadWrite.All"
