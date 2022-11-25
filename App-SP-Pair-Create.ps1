@@ -5,27 +5,23 @@ param (
     [string] $name
 )
 
+function die($msg) {
+    Write-Host -ForegroundColor Yellow $msg ; Exit
+}
+
 function print_usage() {
-    Write-Host "`nUsage:"
-    Write-Host "  $prgName DISPLAY_NAME`n"
-    Exit
+    die "`nUsage:`n  $prgName DISPLAY_NAME`n"
 }
 
 function CreateAppSP($name) {
     # Ensure there is no existing application and/or service principal using this same displayName
-    $problem = $false
     $id = (Get-MgApplication -ConsistencyLevel eventual -Search "DisplayName:$name").Id
     if ($null -ne $id) {
-        Write-Host -ForegroundColor Yellow "`nApplication `"$name`" already exists. Aborting."
-        $problem = $true
+        die "Application `"$name`" already exists. Aborting."
     }
     $id = (Get-MgServicePrincipal -ConsistencyLevel eventual -Search "DisplayName:$name").Id
     if ($null -ne $id) {
-        Write-Host -ForegroundColor Yellow "`nService Principal `"$name`" already exists. Aborting."
-        $problem = $true
-    }
-    if ($problem) {
-        Exit
+        die "Service Principal `"$name`" already exists. Aborting."
     }
     Write-Host "... creating a same-name registered app + SP combo and a secret for that SP ..."
     $new_app = New-MgApplication -DisplayName $name # Optional: -Tags "key1 = value1, key2 = value2"
@@ -46,12 +42,10 @@ function CreateAppSP($name) {
 $prgName = (Get-PSCallStack)[0].Command.Split(".")[0]
 
 if ([string]::IsNullOrWhiteSpace($name)) {
-    # Minimally we need a DisplayName
-    print_usage
+    print_usage  # User must supply at least a DisplayName
 }
-Write-Host "TENANT    = $tenant_id"
 
-# Set up rquired scopes and connect to MS Graph
+# Set up required scopes and connect to MS Graph
 $scopes = @(
     "Application.ReadWrite.All",
     "AppRoleAssignment.ReadWrite.All"
@@ -61,10 +55,12 @@ Connect-MgGraph -Scope $scopes | Out-Null
 
 # Note, this module simply uses the "Microsoft Graph PowerShell" (AppId=14d82eec-204b-4c2f-b7e8-296a70dab67e) Enterprise
 # application in the tenant. User will need to Accept Consent, which will add them to the list of Users for this app.
+# Of course, only users that have the required privilege in the tenant will be able to do this.
 
 $sessionInfo = Get-MgContext
 $tenant_id = $sessionInfo.TenantId
+Write-Host "TENANT  = $tenant_id"
 
 CreateAppSP $name
 
-# Disconnect-MgGraph  # Clean up
+# Disconnect-MgGraph  # To clean up your cached login
