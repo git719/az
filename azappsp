@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+# azappsp
+
+import atexit
+import json
+import logging
+import msal
+import os
+import requests
+import sys
+import time
+import uuid
+import yaml
+import time
+from datetime import datetime
+
+# Global variables
+prgname         = "azappsp"
+prgver          = "21"
+confdir         = ""
+tenant_id       = ""
+client_id       = ""
+client_secret   = ""
+authority_url   = ""
+mg_url          = "https://graph.microsoft.com"
+mg_token        = {} 
+mg_headers      = {}
+
+
+def exit(code):
+    sys.exit(code)  # Syntactic sugar :-)
+
+
+def die(s):
+    print(s)
+    exit(1)   # Exit with error code 1 and given message
+
+
+def print_usage():
+    die("Azure App/SP combo creation utility v" + prgver + "\n  Usage: " + prgname + " APP_SP_NAME")
+
+
+def panic(s):
+    die("Exception caught:\n%s" % (s))
+
+
+def file_exist(f):
+    return os.path.exists(f)
+
+
+def file_size(f):
+    return os.path.getsize(f)
+
+
+def load_file_yaml(filePath):
+    # Read/load/decode given filePath as some YAML object
+    try:
+        with open(filePath) as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        panic(str(e))
+
+
+def print_json(r):
+    print(json.dumps(r, indent=2))
+
+
+def valid_uuid(id):
+    try:
+        uuid.UUID(str(id))
+        return True
+    except Exception as e:
+        return False
+
+
+def setup_credentials():
+    # Tell this function we are updating below global variables
+    global tenant_id, client_id, client_secret
+    
+    # Set up credentials and other variables
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    if not file_exist(creds_file) or file_size(creds_file) < 1:
+        print("Missing credentials file: \"%s\"" % (creds_file))
+        with open(creds_file, "w") as f:
+            creds_text = "%-14s %s\n%-14s %s\n%-14s %s\n" % ("tenant_id:", "UUID", "client_id:", "UUID", "client_secret:", "SECRET")
+            f.write(creds_text)
+        os.chmod(creds_file, 0o600)
+        die("Created a new one. Now edit it, filling in required values, then re-run this utility.")
+
+    creds = load_file_yaml(creds_file)
+    tenant_id = creds["tenant_id"]
+    client_id = creds["client_id"]
+    client_secret = creds["client_secret"]
+    
+    if not valid_uuid(tenant_id):
+        die("tenant_id '%s' in '%s' is not a valid UUID" % (tenant_id, creds_file))
+    if not valid_uuid(client_id):
+        die("client_id '%s' in '%s' is not a valid UUID" % (client_id, creds_file))
+    if not client_secret:
+        die("client_secret in '%s' is blank" % (creds_file))
+
+
+def setup_mg_token(method="automated"):
+    # Tell this function we are updating below global variables
+    global authority_url, mg_token, mg_headers
+
+    authority_url = 'https://login.microsoftonline.com/' + tenant_id
+
+    # Note that '/.default' uses whatever static permissions are defined for the SP in the resource domain
+    mg_token = get_token([mg_url + '/.default'], method)
+    mg_headers = {'Authorization': 'Bearer ' + mg_token['access_token'], 'Content-Type': 'application/json'}
+
+
+def get_token(scopes, method="automated"):
+    token = None
+
+    # Set up cache, as per https://msal-python.readthedocs.io/en/latest/#msal.SerializableTokenCache
+    cache = msal.SerializableTokenCache()
+    cache_file = os.path.join(confdir, method + "_accessTokens.json") # Use unique cache file for each method
+    if file_exist(cache_file):
+        cache.deserialize(open(cache_file, 'r').read())
+    
+    atexit.register(lambda:
+        open(cache_file, 'w').write(cache.serialize())
+        # Hint: The following option line persists only when state changed
+        if cache.has_state_changed else None
+        and os.chmod(cache_file, 0o600)
+    )
+
+    # Acquire token
+    app = None
+    if method == "interactive":
+        username = input('Azure AD Username: ')
+        tenant_id = username.split('@')[1]
+        try:
+            app = msal.PublicClientApplication(
+                client_id="1950a258-227b-4e31-a9cf-717495945fc2",
+                # Important: Note we are using standard Microsoft Azure PowerShell client_id
+                client_credential=None,
+                authority = authority_url + tenant_id,
+                token_cache = cache
+            )
+        except Exception as e:
+            panic(str(e))
+
+        try:
+            # Use 'Device code flow'
+            # First, try getting possible cached token for this account
+            for x in app.get_accounts():
+                if x["username"] == username:
+                    token = app.acquire_token_silent(scopes, account=x)
+            if not token:
+                flow = app.initiate_device_flow(scopes=scopes)
+                if "user_code" not in flow:
+                    raise ValueError("Fail to create device flow. Err: %s" % json.dumps(flow, indent=4))
+                print(flow["message"])
+                sys.stdout.flush()
+                try:
+                    # Else, just get a new token
+                    token = app.acquire_token_by_device_flow(flow)
+                    #token = app.acquire_token_interactive(scopes=scopes)
+                    if 'access_token' not in token:
+                        panic(str(e))
+                except:
+                    pass            
+        except Exception as e:
+            panic(str(e))
+    else:
+        try:
+            app = msal.ConfidentialClientApplication(
+                client_id,
+                client_credential = client_secret,
+                authority = authority_url,
+                token_cache = cache
+            )
+        except Exception as e:
+            panic(str(e))           
+        try:
+            # Try getting cached token first
+            token = app.acquire_token_silent(scopes, account=None)
+            if not token:
+                try:
+                    # Else, just get a new token
+                    token = app.acquire_token_for_client(scopes=scopes)
+                    if 'access_token' not in token:
+                        panic(str(e))
+                except:
+                    pass
+        except Exception as e:
+            panic(str(e))
+
+    return token
+
+
+def api_get(resource, headers=None, params=None, verbose=False):
+    if headers == None:
+        headers = mg_headers
+    try:
+        if verbose:
+            print("API CALL: %s\nPARAMS  : %s\nHEADERS : %s" % (resource, params, headers))
+        r = requests.get(resource, headers=headers, params=params).json()
+        if isinstance(r, int):  # Handle $count filter integer returns
+            return r
+        return r
+    except Exception as e:
+        panic(str(e))
+
+
+def api_post(resource, headers=None, params=None, verbose=False, data=None):
+    if headers == None:
+        headers = mg_headers
+    try:
+        if verbose:
+            print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
+        r = requests.post(resource, headers=headers, params=params, json=data)
+        return r
+    except Exception as e:
+        panic(str(e))
+
+
+def create_app_sp(name):
+    # Create App registration + SP combination
+
+    # First, makes sure they don't already exist
+    mg_headers.update({ "ConsistencyLevel": "eventual" })  # Needed for next 2 queries
+    r = api_get(mg_url + "/v1.0/applications?$search=\"displayName:" + name + "\"")
+    if "value" in r and len(r["value"]) > 0:
+        die("Application \"" + name + "\" already exists. Aborting.")
+
+    r = api_get(mg_url + "/v1.0/servicePrincipals?$search=\"displayName:" + name + "\"")
+    if "value" in r and len(r["value"]) > 0:
+        die("SP \"" + name + "\" already exists. Aborting.")
+
+    # Create App registration
+    del mg_headers["ConsistencyLevel"]  # Remaining calls balk unless this is removed again
+    payload = { "displayName": name }
+    r = api_post(mg_url + "/v1.0/applications", data=payload).json()
+    if "error" in r:
+        die("Error creating App: " + r["error"]["message"])
+    id = r["id"]        # Application object Id
+    appid = r["appId"]  # Application app/client Id
+
+    # Create secret for the app
+    payload = { "passwordCredential": { "displayName": "Initial" } }
+    r = api_post(mg_url + "/v1.0/applications/" + id + "/addPassword", data=payload).json()
+    if "error" in r:
+        die("Error creating secret for this App: " + r["error"]["message"])
+    secret = r["secretText"]
+    
+    # Create SP
+    payload = { "appId": appid }
+    r = api_post(mg_url + "/v1.0/servicePrincipals", data=payload).json()
+    if "error" in r:
+        die("Error creating SP: " + r["error"]["message"])
+
+    print("App/SP = " + name + "\nAppID  = " + appid + "\nSecret = \"" + secret + "\" (PROTECT ACCORDINGLY!)")
+
+
+def main(args = None):
+    number_of_args = len(sys.argv[1:])  # Not including the program itself
+    if number_of_args not in [1]:
+        print_usage()  # Don't accept anything but one argument
+    
+    global confdir # We're updating a global variable
+    if os.environ['HOME']:
+        confdir = os.path.join(os.environ['HOME'], "." + prgname)
+        if not file_exist(confdir):
+            os.makedirs(confdir)
+            os.chmod(confdir, 0o700)
+    else:
+        die("Missing HOME environment variable")
+
+    if number_of_args == 1:  # One-argument requests
+        arg1 = sys.argv[1]
+
+        setup_credentials()  # Set up tenant ID and credentials
+        setup_mg_token()     # Remaining requests need API tokens
+
+        create_app_sp(arg1)
+
+    else:
+        print_usage()
+
+
+if __name__ == '__main__':
+    main()
