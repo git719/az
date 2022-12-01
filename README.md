@@ -82,3 +82,13 @@ zure App/SP combo creation utility v21
   Usage: azappsp APP_SP_NAME
 ```
 This version is non-interactive and therefore requires the registered app with necessary privileges that is mentioned above.
+
+### azspauth
+Reads and updates a Service Principal oAuth2PermissionGrants.
+
+```
+azspauth Azure SP MS Graph API permission lister/updater utility v1
+         UUID                                Display Service Principal API permissions
+         ID "space separated claims list"    Update oAuth2PermissionGrants ID with provided claims lis
+```
+
