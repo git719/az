@@ -87,8 +87,12 @@ This version is non-interactive and therefore requires the registered app with n
 Reads and updates a Service Principal oAuth2PermissionGrants.
 
 ```
-azspauth Azure SP MS Graph API permission lister/updater utility v1
-         UUID                                Display Service Principal API permissions
-         ID "space separated claims list"    Update oAuth2PermissionGrants ID with provided claims lis
+azspauth Azure SP API permissions utility v1
+         SP_OBJECT_UUID                        Display Service Principal API permissions
+         -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file
+         -k                                    Create a skeleton oAuth2PermissionGrant_object.json file
+         ID                                    Display oAuth2PermissionGrants object
+         -d ID                                 Delete oAuth2PermissionGrants ID
+         ID "space-separated claims list"      Update oAuth2PermissionGrants ID with provided claims list
 ```
 
