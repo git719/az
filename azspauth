@@ -37,9 +37,13 @@ def die(s):
 
 
 def print_usage():
-    die(prgname + " Azure SP MS Graph API permission lister/updater utility v" + prgver + "\n"
-        "         UUID                                Display Service Principal API permissions\n"
-        "         ID \"space separated claims list\"    Update oAuth2PermissionGrants ID with provided claims list")
+    die(prgname + " Azure SP API permissions utility v" + prgver + "\n"
+        "         SP_OBJECT_UUID                        Display Service Principal API permissions\n"
+        "         -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file\n"
+        "         -k                                    Create a skeleton oAuth2PermissionGrant_object.json file\n"
+        "         ID                                    Display oAuth2PermissionGrants object\n"
+        "         -d ID                                 Delete oAuth2PermissionGrants ID\n"
+        "         ID \"space-separated claims list\"      Update oAuth2PermissionGrants ID with provided claims list")
 
 
 def panic(s):
@@ -63,6 +67,24 @@ def load_file_yaml(filePath):
         panic(str(e))
 
 
+def load_file_json(filePath):
+    # Read/load/decode given filePath as some JSON object
+    try:
+        with open(filePath) as f:
+            return json.load(f)
+    except Exception as e:
+        panic(str(e))
+        
+
+def save_file_json(json_object, file_path):
+    # Save given JSON object to given filePath
+    try:
+        with open(file_path, 'w') as f:
+            json.dump(json_object, f, indent=2)
+    except Exception as e:
+        panic(str(e))
+
+
 def print_json(r):
     print(json.dumps(r, indent=2))
 
@@ -73,6 +95,19 @@ def valid_uuid(id):
         return True
     except Exception as e:
         return False
+
+
+def create_skeleton():
+    skeleton = "oAuth2PermissionGrant_object.json"
+    if file_exist(skeleton):
+        die("Error. File \"" + skeleton + "\" already exists.")
+    content = {
+        "clientId":    "CLIENT_SP_UUID",
+        "consentType": "AllPrincipals",
+        "resourceId":  "API_SP_UUID",
+        "scope":       "space-separated claims list"
+    }
+    save_file_json(content, skeleton)
 
 
 def setup_credentials():
@@ -208,6 +243,18 @@ def api_get(resource, headers=None, params=None, verbose=False):
         panic(str(e))
 
 
+def api_delete(resource, headers=None, params=None, verbose=False, data=None):
+    if headers == None:
+        headers = mg_headers
+    try:
+        if verbose:
+            print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
+        r = requests.delete(resource, headers=headers, params=params, json=data)
+        return r
+    except Exception as e:
+        panic(str(e))
+
+
 def api_patch(resource, headers=None, params=None, verbose=False, data=None):
     if headers == None:
         headers = mg_headers
@@ -232,7 +279,7 @@ def api_post(resource, headers=None, params=None, verbose=False, data=None):
         panic(str(e))
 
 
-def show_perms(id):
+def show_sp_perms(id):
     # r = api_get(mg_url + "/v1.0/oauth2PermissionGrants")
     # print_json(r)
     # exit(0)    
@@ -252,16 +299,39 @@ def show_perms(id):
             print("%-50s %-50s %s" % (api["id"], api_name, i))
 
 
-def update_perms(id, claims):
-    # Make sure oAuth2Perm exists
+def show_perms(id):
+    # Show oAuth2PermissionGrant permissions
     r = api_get(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
     if "error" in r:
-        die("Erro locating that oauth2PermissionGrants ID: " + r["error"]["message"])
+        die(r["error"]["message"])
+    print_json(r)
 
-    # Update oAuth2Perm
+
+def update_perms(id, claims):
+    # Make sure oAuth2Perms exists
+    r = api_get(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
+    if "error" in r:
+        die(r["error"]["message"])
+
+    # Update oAuth2Perms
     payload = { "scope": claims }
     r = api_patch(mg_url + "/v1.0/oauth2PermissionGrants/" + id, data=payload)
     if r.status_code != 204:
+        print_json(r.json())
+
+
+def delete_perms(id):
+    # Delete oAuth2Perms
+    r = api_delete(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
+    if r.status_code != 204:
+        print_json(r.json())
+
+
+def create_perms(f):
+    # Create oAuth2Perms
+    payload = load_file_json(f)
+    r = api_post(mg_url + "/v1.0/oauth2PermissionGrants", data=payload)
+    if r.status_code != 200:
         print_json(r.json())
 
 
@@ -286,6 +356,10 @@ def main(args = None):
         setup_mg_token()     # Remaining requests need API tokens
 
         if valid_uuid(arg1):
+            show_sp_perms(arg1)
+        elif arg1 == "-k":
+            create_skeleton()
+        else:
             show_perms(arg1)
 
     elif number_of_args == 2: # Two-argument request
@@ -295,7 +369,12 @@ def main(args = None):
         setup_credentials()  # Set up tenant ID and credentials
         setup_mg_token()     # Remaining requests need API tokens
 
-        update_perms(arg1, arg2)
+        if arg1 == "-d":
+            delete_perms(arg2)
+        elif arg1 == "-a" and file_exist(arg2):
+            create_perms(arg2)
+        else:    
+            update_perms(arg1, arg2)
         
     else:
         print_usage()
