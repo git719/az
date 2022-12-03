@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "1"
+prgver          = "2"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""
@@ -49,7 +49,7 @@ def print_usage():
         "         -cr                                   Dump values in credentials file\n"
         "         -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login\n"
         "         -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login\n"
-		"         -tx                                   Delete accessTokens cache file")
+		"         -tx                                   Delete MSAL accessTokens cache file")
 
 
 def panic(s):

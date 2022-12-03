@@ -84,7 +84,7 @@ zure App/SP combo creation utility v21
 This version is non-interactive and therefore requires the registered app with necessary privileges that is mentioned above.
 
 ### azspauth
-Reads and updates a Service Principal oAuth2PermissionGrants.
+Reads and updates a Service Principal's oAuth2PermissionGrants.
 
 ```
 azspauth Azure SP API permissions utility v1
@@ -94,5 +94,12 @@ azspauth Azure SP API permissions utility v1
          ID                                    Display oAuth2PermissionGrants object
          -d ID                                 Delete oAuth2PermissionGrants ID
          ID "space-separated claims list"      Update oAuth2PermissionGrants ID with provided claims list
+         -cr                                   Dump values in credentials file
+         -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login
+         -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login
+         -tx                                   Delete MSAL accessTokens cache file
 ```
+
+### SP-Auth
+Script `SP-Auth.ps1` is the PowerShell equivalent of `azspauth`, and still a work in progress.
 
