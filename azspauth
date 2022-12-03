@@ -21,6 +21,8 @@ confdir         = ""
 tenant_id       = ""
 client_id       = ""
 client_secret   = ""
+interactive     = ""
+username        = ""
 authority_url   = ""
 mg_url          = "https://graph.microsoft.com"
 mg_token        = {} 
@@ -43,7 +45,11 @@ def print_usage():
         "         -k                                    Create a skeleton oAuth2PermissionGrant_object.json file\n"
         "         ID                                    Display oAuth2PermissionGrants object\n"
         "         -d ID                                 Delete oAuth2PermissionGrants ID\n"
-        "         ID \"space-separated claims list\"      Update oAuth2PermissionGrants ID with provided claims list")
+        "         ID \"space-separated claims list\"      Update oAuth2PermissionGrants ID with provided claims list\n"
+        "         -cr                                   Dump values in credentials file\n"
+        "         -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login\n"
+        "         -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login\n"
+		"         -tx                                   Delete accessTokens cache file")
 
 
 def panic(s):
@@ -56,6 +62,10 @@ def file_exist(f):
 
 def file_size(f):
     return os.path.getsize(f)
+
+
+def remove_file(f):
+    os.remove(f)     # Syntactic sugar
 
 
 def load_file_yaml(filePath):
@@ -110,50 +120,115 @@ def create_skeleton():
     save_file_json(content, skeleton)
 
 
+def dump_variables():
+    # Dump essential global variables
+    print("%-16s %s" % ("tenant_id:", tenant_id))
+    if interactive:
+        print("%-16s %s" % ("username:", username))
+        print("%-16s %s" % ("interactive:", "true"))
+    else:
+        #print("%-16s %s" % ("client_id:", client_id))
+        print("%-16s %s" % ("client_secret:", client_secret))
+    print("%-16s %s" % ("authority_url:", authority_url))
+    if "mg_url" in globals():
+        print("%-16s %s" % ("mg_url:", mg_url))
+    if "az_url" in globals():
+        print("%-16s %s" % ("az_url:", az_url))
+    if "mg_headers" in globals():
+        print("mg_headers:")
+        for k, v in mg_headers.items():
+            print("  %-14s %s" % (k + ":", v))
+    if "az_headers" in globals():
+        print("az_headers:")
+        for k, v in az_headers.items():
+            print("  %-14s %s" % (k + ":", v))
+    exit(1)
+
+
+def dump_credentials():
+    # Dump credentials file
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    creds = load_file_yaml(creds_file)
+    print("%-14s %s" % ("tenant_id:", creds["tenant_id"]))
+    if "interactive" in creds:
+        print("%-14s %s" % ("username:", creds["username"]))
+        print("%-14s %s" % ("interactive:", creds["interactive"]))
+    else:
+        print("%-14s %s" % ("client_id:", creds["client_id"]))
+        print("%-14s %s" % ("client_secret:", creds["client_secret"]))
+    exit(1)
+
+
+def setup_interactive_login(tenant_id, username):
+    # Set up credentials file for interactive login
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    if not valid_uuid(tenant_id):
+        die("Error. TENANT_ID is an invalid UUID.")
+
+    with open(creds_file, "w") as f:
+        creds_text = "%-14s %s\n%-14s %s\n%-14s %s\n" % ("tenant_id:", tenant_id, "username:", username, "interactive:", "true")
+        f.write(creds_text)
+    os.chmod(creds_file, 0o600)
+    print("%s : Updated credentials" % (creds_file))
+
+
+def setup_automated_login(tenant_id, client_id, secret):
+    # Set up credentials file for client_id + secret login
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    if not valid_uuid(tenant_id):
+        die("Error. TENANT_ID is an invalid UUID.")
+    if not valid_uuid(client_id):
+        die("Error. CLIENT_ID is an invalid UUID.")
+
+    with open(creds_file, "w") as f:
+        creds_text = "%-14s %s\n%-14s %s\n%-14s %s\n" % ("tenant_id:", tenant_id, "client_id:", client_id, "client_secret:", secret)
+        f.write(creds_text)
+    os.chmod(creds_file, 0o600)
+    print("%s : Updated credentials" % (creds_file))
+
+
 def setup_credentials():
-    # Tell this function we are updating below global variables
-    global tenant_id, client_id, client_secret
-    
-    # Set up credentials and other variables
+    # Read credentials file and set up authentication parameters as global variables
+    global tenant_id, client_id, client_secret, interactive, username  # This function will update these Global Variables
     creds_file = os.path.join(confdir, "credentials.yaml")
     if not file_exist(creds_file) or file_size(creds_file) < 1:
-        print("Missing credentials file: \"%s\"" % (creds_file))
-        with open(creds_file, "w") as f:
-            creds_text = "%-14s %s\n%-14s %s\n%-14s %s\n" % ("tenant_id:", "UUID", "client_id:", "UUID", "client_secret:", "SECRET")
-            f.write(creds_text)
-        os.chmod(creds_file, 0o600)
-        die("Created a new one. Now edit it, filling in required values, then re-run this utility.")
+        die("Missing credentials file: '%s'" % (creds_file),
+            "Please rerun program using '-cr' or '-cri' option to specify credentials.")
 
     creds = load_file_yaml(creds_file)
     tenant_id = creds["tenant_id"]
-    client_id = creds["client_id"]
-    client_secret = creds["client_secret"]
-    
     if not valid_uuid(tenant_id):
-        die("tenant_id '%s' in '%s' is not a valid UUID" % (tenant_id, creds_file))
-    if not valid_uuid(client_id):
-        die("client_id '%s' in '%s' is not a valid UUID" % (client_id, creds_file))
-    if not client_secret:
-        die("client_secret in '%s' is blank" % (creds_file))
+        die("[%s] tenant_id '%s' is not a valid UUID" % (creds_file, tenant_id))
+    if "interactive" in creds:
+        username = creds["username"]
+        interactive = creds["interactive"]
+    else:
+        client_id = creds["client_id"]
+        if not valid_uuid(client_id):
+            die("[%s] client_id '%s' is not a valid UUID." % (creds_file, client_id))
+        client_secret = creds["client_secret"]
+        if client_secret == "":
+            die("[%s] client_secret is blank" % (creds_file))
 
 
-def setup_mg_token(method="automated"):
-    # Tell this function we are updating below global variables
-    global authority_url, mg_token, mg_headers
+def setup_api_tokens():
+    # Initialize necessary global variables, acquire all API tokens, and set them up for use
+    setup_credentials()  # Sets up tenant ID, client ID, authentication method, etc
+    global authority_url, mg_token, mg_headers  # This function will update these Global Variables
+    authority_url = "https://login.microsoftonline.com/" + tenant_id
 
-    authority_url = 'https://login.microsoftonline.com/' + tenant_id
-
+    # Get token for MS Graph (MG) API calls
+    mg_scope = [mg_url + "/.default"]  # List of case-sensitive URLs strings
     # Note that '/.default' uses whatever static permissions are defined for the SP in the resource domain
-    mg_token = get_token([mg_url + '/.default'], method)
-    mg_headers = {'Authorization': 'Bearer ' + mg_token['access_token'], 'Content-Type': 'application/json'}
+    mg_token = get_token(mg_scope)
+    # Default headers for MG calls, with newly acquired token embedded
+    mg_headers = {'Authorization': 'Bearer ' + mg_token, 'Content-Type': 'application/json'}
 
 
-def get_token(scopes, method="automated"):
-    token = None
-
+def get_token(scopes):
     # Set up cache, as per https://msal-python.readthedocs.io/en/latest/#msal.SerializableTokenCache
     cache = msal.SerializableTokenCache()
-    cache_file = os.path.join(confdir, method + "_accessTokens.json") # Use unique cache file for each method
+    cache_file = os.path.join(confdir, "accessTokens.json")
     if file_exist(cache_file):
         cache.deserialize(open(cache_file, 'r').read())
     
@@ -166,67 +241,55 @@ def get_token(scopes, method="automated"):
 
     # Acquire token
     app = None
-    if method == "interactive":
-        username = input('Azure AD Username: ')
-        tenant_id = username.split('@')[1]
+    if interactive:
+        # Interactive login with PublicClientApplication
+        # See https://msal-python.readthedocs.io/en/latest/index.html#publicclientapplication
         try:
-            app = msal.PublicClientApplication(
-                client_id="1950a258-227b-4e31-a9cf-717495945fc2",
-                # Important: Note we are using standard Microsoft Azure PowerShell client_id
-                client_credential=None,
-                authority = authority_url + tenant_id,
-                token_cache = cache
-            )
+            # We'll use the Azure PowerShell client_id for this
+            ps_client_id = "1950a258-227b-4e31-a9cf-717495945fc2"  # Local variable
+            # See https://stackoverflow.com/questions/30454771/how-does-azure-powershell-work-with-username-password-based-auth
+            app = msal.PublicClientApplication(client_id=ps_client_id,client_credential=None,authority=authority_url,token_cache=cache)
         except Exception as e:
-            panic(str(e))
-
+            panic(str(e))        
         try:
-            # Use 'Device code flow'
-            # First, try getting possible cached token for this account
-            for x in app.get_accounts():
-                if x["username"] == username:
-                    token = app.acquire_token_silent(scopes, account=x)
-            if not token:
-                flow = app.initiate_device_flow(scopes=scopes)
-                if "user_code" not in flow:
-                    raise ValueError("Fail to create device flow. Err: %s" % json.dumps(flow, indent=4))
-                print(flow["message"])
-                sys.stdout.flush()
+            target_account = None
+            for account in app.get_accounts(username=None):
+                if account["username"] == username:
+                    target_account = account
+                    break
+            token = app.acquire_token_silent(scopes, account=target_account)  # Try getting cached token first
+            if not token:  # Else, just get a new token
                 try:
-                    # Else, just get a new token
-                    token = app.acquire_token_by_device_flow(flow)
-                    #token = app.acquire_token_interactive(scopes=scopes)
-                    if 'access_token' not in token:
+                    # acquire_token_interactive: Acquires a security token from the authority using the default web browser to select the account.
+                    # See https://msal-python.readthedocs.io/en/latest/index.html#msal.PublicClientApplication.acquire_token_interactive
+                    token = app.acquire_token_interactive(scopes=scopes)
+                    if "access_token" not in token:
                         panic(str(e))
                 except:
                     pass            
         except Exception as e:
             panic(str(e))
     else:
+        # Client_id + secret login automated login with ConfidentialClientApplication
+        # See https://msal-python.readthedocs.io/en/latest/index.html#confidentialclientapplication        
         try:
-            app = msal.ConfidentialClientApplication(
-                client_id,
-                client_credential = client_secret,
-                authority = authority_url,
-                token_cache = cache
-            )
+            app = msal.ConfidentialClientApplication(client_id,client_credential=client_secret,authority=authority_url,token_cache=cache)
         except Exception as e:
             panic(str(e))           
         try:
-            # Try getting cached token first
-            token = app.acquire_token_silent(scopes, account=None)
-            if not token:
+            token = app.acquire_token_silent(scopes, account=None)  # Try getting cached token first
+            if not token:  # Else, just get a new token
                 try:
-                    # Else, just get a new token
+                    # acquire_token_for_client: Acquires token for the current confidential client, not for an end user.
+                    # See https://msal-python.readthedocs.io/en/latest/index.html#msal.ConfidentialClientApplication.acquire_token_for_client
                     token = app.acquire_token_for_client(scopes=scopes)
-                    if 'access_token' not in token:
+                    if "access_token" not in token:
                         panic(str(e))
                 except:
                     pass
         except Exception as e:
             panic(str(e))
-
-    return token
+    return token["access_token"]  # We only care about the actual token string
 
 
 def api_get(resource, headers=None, params=None, verbose=False):
@@ -299,6 +362,15 @@ def show_sp_perms(id):
             print("%-50s %-50s %s" % (api["id"], api_name, i))
 
 
+def valid_oauth_id(id):
+    # Is this a valid oAuth2PermissionGrant ID?
+    r = api_get(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
+    if "error" in r:
+        return False
+    else:
+        return True
+
+
 def show_perms(id):
     # Show oAuth2PermissionGrant permissions
     r = api_get(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
@@ -337,7 +409,7 @@ def create_perms(f):
 
 def main(args = None):
     number_of_args = len(sys.argv[1:])  # Not including the program itself
-    if number_of_args not in [1, 2]:
+    if number_of_args not in [1, 2, 3, 4]:
         print_usage()  # Don't accept more than 1 or 2 arguments
     
     global confdir # We're updating a global variable
@@ -348,34 +420,46 @@ def main(args = None):
             os.chmod(confdir, 0o700)
     else:
         die("Missing HOME environment variable")
-
-    if number_of_args == 1:  # One-argument request
+    if number_of_args == 1:  # Process 1-argument requests
         arg1 = sys.argv[1]
-
-        setup_credentials()  # Set up tenant ID and credentials
-        setup_mg_token()     # Remaining requests need API tokens
-
+        setup_api_tokens()
         if valid_uuid(arg1):
             show_sp_perms(arg1)
         elif arg1 == "-k":
             create_skeleton()
-        else:
+        elif arg1 == "-tx":
+            remove_file(os.path.join(confdir, "accessTokens.json"))
+        elif arg1 == "-z":
+            dump_variables()
+        elif arg1 == "-cr":
+            dump_credentials()
+        elif valid_oauth_id(arg1):
             show_perms(arg1)
-
-    elif number_of_args == 2: # Two-argument request
+        else:
+            print_usage()
+    elif number_of_args == 2: # Process 2-argument requests
         arg1 = sys.argv[1]
         arg2 = sys.argv[2]
-
-        setup_credentials()  # Set up tenant ID and credentials
-        setup_mg_token()     # Remaining requests need API tokens
-
+        setup_api_tokens()
         if arg1 == "-d":
             delete_perms(arg2)
         elif arg1 == "-a" and file_exist(arg2):
             create_perms(arg2)
         else:    
             update_perms(arg1, arg2)
-        
+    elif number_of_args == 3: # Process 3-argument requests
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+        arg3 = sys.argv[3]
+        if arg1 == "-cri":
+            setup_interactive_login(arg2, arg3)
+    elif number_of_args == 4: # Process 4-argument requests
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+        arg3 = sys.argv[3]
+        arg4 = sys.argv[4]
+        if arg1 == "-cr":
+            setup_automated_login(arg2, arg3, arg4)
     else:
         print_usage()
 
