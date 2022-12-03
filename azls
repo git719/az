@@ -1232,21 +1232,17 @@ def main(args = None):
         sys.exit(1)
 
     if number_of_args == 1:  # One-argument requests
-        arg1 = sys.argv[1].lower() # Always treat 1st argument as Lowercase, to ease comparisons
-
+        arg1 = sys.argv[1]
         setup_credentials() # Set up tenant ID and credentials
-
         if arg1 == "-v":
             print_usage()
         elif arg1 in ["-tx", "-dx", "-ax", "-sx", "-ux", "-gx", "-spx", "-apx"]:
             remove_cache_file(arg1[1:-1]) # Chop off last character to leverage oMap dictionary
         elif arg1 == "-xx":
             remove_cache_file("all")
-
         # Remaining requests need AZ and MG API tokens
         setup_az_token()
         setup_mg_token()
-
         # Handle the three(3) primary single-argument list functions for all object types
         if arg1 in ["-dc", "-ac", "-sc", "-uc", "-gc", "-spc", "-apc"]:    # Handle count of all objects
             print(object_count(arg1[1:-1]))                                # Single out the object type, get its count, print it
@@ -1262,17 +1258,14 @@ def main(args = None):
         elif arg1 == "-z":
             dump_variables()
         else:
-            print("This option is not yet available.")
-    
-    else:    # Two-argument requests
-        arg1 = sys.argv[1].lower()
+            print_usage()
+    elif number_of_args == 2: # Two-argument requests
+        arg1 = sys.argv[1]
         arg2 = sys.argv[2]
-
         setup_credentials() # Set up tenant ID and credentials
         # Remaining requests need AZ and MG API tokens
         setup_az_token()
         setup_mg_token()
-
         if arg1 in ["-dj", "-aj", "-sj", "-uj", "-gj", "-spj", "-apj"]:
             t = arg1[1:-1] # Single out our object type letter (see oMap)
             if valid_uuid(arg2):
@@ -1288,7 +1281,10 @@ def main(args = None):
             else:
                 print_matching(t, arg2)
         else:
-            print("This option is not yet available.")
+            print_usage()
+    else:
+        print_usage()
+
 
 if __name__ == '__main__':
     main()
