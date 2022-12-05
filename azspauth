@@ -415,7 +415,7 @@ def create_perms(f):
 def main(args = None):
     number_of_args = len(sys.argv[1:])  # Not including the program itself
     if number_of_args not in [1, 2, 3, 4]:
-        print_usage()  # Don't accept more than 1 or 2 arguments
+        print_usage()  # Don't accept less than 1 or more than 4 arguments
     
     global confdir # We're updating a global variable
     if os.environ['HOME']:
@@ -425,6 +425,7 @@ def main(args = None):
             os.chmod(confdir, 0o700)
     else:
         die("Missing HOME environment variable")
+
     if number_of_args == 1:  # Process 1-argument requests
         arg1 = sys.argv[1]
         setup_api_tokens()
