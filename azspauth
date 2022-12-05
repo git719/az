@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "3"
+prgver          = "4"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""
@@ -452,13 +452,15 @@ def main(args = None):
         elif arg1 == "-a" and file_exist(arg2):
             create_perms(arg2)
         else:    
-            update_perms(arg1, arg2)
+            update_perms(arg1, arg2)  # Bogus values will generate the appropriate error messages
     elif number_of_args == 3: # Process 3-argument requests
         arg1 = sys.argv[1]
         arg2 = sys.argv[2]
         arg3 = sys.argv[3]
         if arg1 == "-cri":
             setup_interactive_login(arg2, arg3)
+        else:
+            print_usage()
     elif number_of_args == 4: # Process 4-argument requests
         arg1 = sys.argv[1]
         arg2 = sys.argv[2]
@@ -466,6 +468,8 @@ def main(args = None):
         arg4 = sys.argv[4]
         if arg1 == "-cr":
             setup_automated_login(arg2, arg3, arg4)
+        else:
+            print_usage()
     else:
         print_usage()
 
