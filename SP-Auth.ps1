@@ -2,9 +2,6 @@
 
 # Work in progress 
 
-# We're interested in the raw arguments as they were passed
-# See https://stackoverflow.com/questions/59657293/how-to-check-number-of-arguments-in-powershell
-
 # Global variables
 $global:prgname         = "SP-Auth"
 $global:prgver          = "3"
@@ -37,29 +34,131 @@ function print_usage() {
 		"        -tx                                   Delete MSAL accessTokens cache file")
 }
 
-function CreateAppSP($name) {
-    # Ensure there is no existing application and/or service principal using this same displayName
-    $id = (Get-MgApplication -ConsistencyLevel eventual -Search "DisplayName:$name").Id
-    if ($null -ne $id) {
-        die "Application `"$name`" already exists. Aborting."
-    }
-    $id = (Get-MgServicePrincipal -ConsistencyLevel eventual -Search "DisplayName:$name").Id
-    if ($null -ne $id) {
-        die "Service Principal `"$name`" already exists. Aborting."
-    }
-    Write-Host "... creating a same-name registered app + SP combo and a secret for that SP ..."
-    $new_app = New-MgApplication -DisplayName $name # Optional: -Tags "key1 = value1, key2 = value2"
+function panic($s) {
+    Write-Host "Pass"
+}
 
-    $passwordCred = @{
-        displayName = (Get-Date)
-        endDateTime = (Get-Date).AddMonths(12)
-    }
-    $secret = Add-MgApplicationPassword -ApplicationId $new_app.Id -PasswordCredential $passwordCred
+function file_exist($filePath) {
+    Write-Host "Pass"
+}
 
-    $new_sp = New-MGServicePrincipal -AppId $new_app.AppId
-    Write-Host "APP/SP  = $($new_app.DisplayName)"
-    Write-Host "APPID   = $($new_sp.AppId)"
-    Write-Host "SECRET  = `"$($secret.SecretText)`" (PROTECT ACCORDINGLY!)"
+function file_size($filePath) {
+    Write-Host "Pass"
+}
+
+function remove_file($filePath) {
+    Write-Host "Pass"
+}
+
+function load_file_yaml($filePath) {
+    Write-Host "Pass"
+}
+
+function load_file_json($filePath) {
+    Write-Host "Pass"
+}
+
+function save_file_json($filePath) {
+    Write-Host "Pass"
+}
+
+function print_json($jsonObj) {
+    Write-Host "Pass"
+}
+
+function valid_uuid($id) {
+    Write-Host "Pass"
+}
+
+function create_skeleton() {
+    Write-Host "Pass"
+}
+
+function dump_variables() {
+    Write-Host "Pass"
+}
+
+function dump_credentials() {
+    Write-Host "Pass"
+}
+
+function setup_interactive_login($tenant_id, $username) {
+    Write-Host "Pass"
+}
+
+function setup_automated_login($tenant_id, $client_id, $secret) {
+    Write-Host "Pass"
+}
+
+function setup_credentials() {
+    Write-Host "Pass"
+}
+
+function setup_api_tokens() {
+    Write-Host "Pass"
+}
+
+function get_token($scopes) {
+    Write-Host "Pass"
+}
+
+function api_get($resource, $headers=$null, $params=$null, $verbose=$false) {
+    Write-Host "Pass"
+}
+
+function api_delete($resource, $headers=$null, $params=$null, $verbose=$false, $data=$null) {
+    Write-Host "Pass"
+}
+
+function api_patch($resource, $headers=$null, $params=$null, $verbose=$false, $data=$null) {
+    Write-Host "Pass"
+}
+
+function api_post($resource, $headers=$null, $params=$null, $verbose=$false, $data=$null) {
+    Write-Host "Pass"
+}
+
+function show_sp_perms($id) {
+    Write-Host "Pass"
+}
+
+function valid_oauth_id($id) {
+    Write-Host "Pass"
+}
+
+function show_perms($id) {
+    Write-Host "Pass"
+}
+
+function update_perms($id, $claims) {
+    Write-Host "Pass"
+}
+
+function delete_perms($id) {
+    Write-Host "Pass"
+}
+
+function create_perms($filePath) {
+    Write-Host "Pass"
+}
+
+function setup_confdir () {
+    # Create the utility's config directory
+    # $env:USERPROFILE = $pwd    # Test with working dir
+    if ( $null -eq $env:USERPROFILE ) {
+        die "Missing USERPROFILE environment variable"
+    } else {
+        $global:confdir = Join-Path -Path $env:USERPROFILE -ChildPath ("." + $prgname)
+        Write-Host $global:confdir
+        if (-not (Test-Path -LiteralPath $global:confdir)) {
+            try {
+                New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
+            }
+            catch {
+                die "Unable to create directory '$global:confdir'. Error was: $_"
+            }
+        }
+    }
 }
 
 # =================== MAIN ===========================
@@ -67,42 +166,52 @@ if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
     print_usage  # Don't accept less than 1 or more than 4 arguments
 }
 
-# Create utility config directory
-# $env:USERPROFILE = $pwd    # Test with working dir
-if ( $null -eq $env:USERPROFILE ) {
-    die "Missing USERPROFILE environment variable"
-} else {
-    $global:confdir = Join-Path -Path $env:USERPROFILE -ChildPath ("." + $prgname)
-    Write-Host $global:confdir
-    if (-not (Test-Path -LiteralPath $global:confdir)) {
-        try {
-            New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
-        }
-        catch {
-            die "Unable to create directory '$global:confdir'. Error was: $_"
-        }
+setup_confdir
+
+if ( $args.Count -eq 1 ) {        # Process 1-argument requests
+    $arg1 = $args[0]
+    setup_api_tokens
+    if ( valid_uuid $arg1 ) {
+        show_sp_perms $arg1 
+    } elseif ( $arg1 -eq "-k" ) {
+        create_skeleton
+    } elseif ( $arg1 -eq "-tx" ) {
+        remove_file #os.path.join(confdir, "accessTokens.json") 
+    } elseif ( $arg1 -eq "-z" ) {
+        dump_variables
+    } elseif ( $arg1 -eq "-cr" ) {
+        dump_credentials
+    } elseif ( valid_oauth_id $arg1 ) {
+        show_perms $arg1
+    } else {
+        print_usage
     }
-
+} elseif ( $args.Count -eq 2 ) {  # Process 2-argument requests
+    $arg1 = $args[0]
+    $arg2 = $args[1]
+    setup_api_tokens
+    if ( $arg1 -eq "-d" ) {
+        delete_perms $arg2
+    } elseif ( ( $arg1 -eq "-a" ) -and ( file_exist $arg2 ) ) {
+        create_perms $arg2
+    } else {
+        update_perms $arg1 $arg2
+    }
+} elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
+    $arg1 = $args[0]
+    $arg2 = $args[1]
+    $arg3 = $args[2]
+    if ( $arg1 -eq "-cri" ) {
+        setup_interactive_login $arg2 $arg3
+    }
+} elseif ( $args.Count -eq 4 ) {  # Process 4-argument requests
+    $arg1 = $args[0]
+    $arg2 = $args[1]
+    $arg3 = $args[2]
+    $arg4 = $args[3]
+    if ( $arg1 -eq "-cr" ) {
+        setup_automated_login $arg2 $arg3 $arg4
+    }
+} else {
+    print_usage
 }
-
-die "Done"
-
-
-# Set up required scopes and connect to MS Graph
-$scopes = @(
-    "Application.ReadWrite.All",
-    "AppRoleAssignment.ReadWrite.All"
-    # See https://docs.microsoft.com/en-us/graph/permissions-reference#application-permissions-49
-)
-Connect-MgGraph -Scope $scopes | Out-Null
-
-# Note, this module simply uses the "Microsoft Graph PowerShell" (AppId=14d82eec-204b-4c2f-b7e8-296a70dab67e) Enterprise
-# application in the tenant. User will need to Accept Consent, which will add them to the list of Users for this app.
-# Of course, only users that have the required privilege in the tenant will be able to do this.
-
-$sessionInfo = Get-MgContext
-$tenant_id = $sessionInfo.TenantId
-Write-Host "TENANT  = $tenant_id"
-
-CreateAppSP $name
-Disconnect-MgGraph  # To clean up your cached login
