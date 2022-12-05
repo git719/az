@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "2"
+prgver          = "3"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""
@@ -217,12 +217,17 @@ def setup_api_tokens():
     global authority_url, mg_token, mg_headers  # This function will update these Global Variables
     authority_url = "https://login.microsoftonline.com/" + tenant_id
 
-    # Get token for MS Graph (MG) API calls
-    mg_scope = [mg_url + "/.default"]  # List of case-sensitive URLs strings
-    # Note that '/.default' uses whatever static permissions are defined for the SP in the resource domain
-    mg_token = get_token(mg_scope)
-    # Default headers for MG calls, with newly acquired token embedded
+	# This utility calls 2 different resources, the Azure Resource Management (ARM) and MS Graph APIs, and each needs
+	# its own separate token. The Microsoft identity platform does not allow you to get a token for several resources at once.
+	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
+
+    mg_scope = [mg_url + "/.default"]  # The scope is a list of strings
+	# Appending '/.default' will allow using all static and consented permissions of the identity in use
+	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
+    mg_token = get_token(mg_scope)     # Note, these are 2 global variable we are updating!
     mg_headers = {'Authorization': 'Bearer ' + mg_token, 'Content-Type': 'application/json'}
+
+	# You would get other API tokens here ...
 
 
 def get_token(scopes):
