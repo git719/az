@@ -33,8 +33,8 @@ def exit(code):
     sys.exit(code)  # Syntactic sugar :-)
 
 
-def die(s):
-    print(s)
+def die(msg):
+    print(msg)
     exit(1)   # Exit with error code 1 and given message
 
 
@@ -52,20 +52,20 @@ def print_usage():
 		"         -tx                                   Delete MSAL accessTokens cache file")
 
 
-def panic(s):
-    die("Exception caught:\n%s" % (s))
+def panic(msg):
+    die("Exception caught:\n%s" % (msg))
 
 
-def file_exist(f):
-    return os.path.exists(f)
+def file_exist(filePath):
+    return os.path.exists(filePath)
 
 
-def file_size(f):
-    return os.path.getsize(f)
+def file_size(filePath):
+    return os.path.getsize(filePath)
 
 
-def remove_file(f):
-    os.remove(f)     # Syntactic sugar
+def remove_file(filePath):
+    os.remove(filePath)     # Syntactic sugar
 
 
 def load_file_yaml(filePath):
@@ -86,17 +86,17 @@ def load_file_json(filePath):
         panic(str(e))
         
 
-def save_file_json(json_object, file_path):
+def save_file_json(jsonObject, filePath):
     # Save given JSON object to given filePath
     try:
-        with open(file_path, 'w') as f:
-            json.dump(json_object, f, indent=2)
+        with open(filePath, 'w') as f:
+            json.dump(jsonObject, f, indent=2)
     except Exception as e:
         panic(str(e))
 
 
-def print_json(r):
-    print(json.dumps(r, indent=2))
+def print_json(jsonObject):
+    print(json.dumps(jsonObject, indent=2))
 
 
 def valid_uuid(id):
@@ -192,7 +192,7 @@ def setup_credentials():
     global tenant_id, client_id, client_secret, interactive, username  # This function will update these Global Variables
     creds_file = os.path.join(confdir, "credentials.yaml")
     if not file_exist(creds_file) or file_size(creds_file) < 1:
-        die("Missing credentials file: '%s'" % (creds_file),
+        die("Missing credentials file: '%s'" % (creds_file) + "\n"
             "Please rerun program using '-cr' or '-cri' option to specify credentials.")
 
     creds = load_file_yaml(creds_file)
@@ -404,9 +404,9 @@ def delete_perms(id):
         print_json(r.json())
 
 
-def create_perms(f):
+def create_perms(filePath):
     # Create oAuth2Perms
-    payload = load_file_json(f)
+    payload = load_file_json(filePath)
     r = api_post(mg_url + "/v1.0/oauth2PermissionGrants", data=payload)
     if r.status_code != 200:
         print_json(r.json())
