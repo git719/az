@@ -1,17 +1,40 @@
 # SP-Auth.ps1
 
-# Still a work in progress  ...
+# Work in progress 
 
-param (
-    [string] $name
-)
+# We're interested in the raw arguments as they were passed
+# See https://stackoverflow.com/questions/59657293/how-to-check-number-of-arguments-in-powershell
+
+# Global variables
+$global:prgname         = "SP-Auth"
+$global:prgver          = "3"
+$global:confdir         = ""
+$global:tenant_id       = ""
+$global:client_id       = ""
+$global:client_secret   = ""
+$global:interactive     = ""
+$global:username        = ""
+$global:authority_url   = ""
+$global:mg_url          = "https://graph.microsoft.com"
+$global:mg_token        = @{}
+$global:mg_headers      = @{}
 
 function die($msg) {
-    Write-Host -ForegroundColor Yellow $msg ; Exit
+    Write-Host -ForegroundColor Yellow $msg ; exit
 }
 
 function print_usage() {
-    die "`nUsage:`n  $prgName DISPLAY_NAME`n"
+    die ("$prgname Azure SP API permissions utility v$prgver`n" +
+        "        SP_OBJECT_UUID                        Display Service Principal API permissions`n" +
+        "        -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file`n" +
+        "        -k                                    Create a skeleton oAuth2PermissionGrant_object.json file`n" +
+        "        ID                                    Display oAuth2PermissionGrants object`n" +
+        "        -d ID                                 Delete oAuth2PermissionGrants ID`n" +
+        "        ID `"space-separated claims list`"      Update oAuth2PermissionGrants ID with provided claims list`n" +
+        "        -cr                                   Dump values in credentials file`n" +
+        "        -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login`n" +
+        "        -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login`n" +
+		"        -tx                                   Delete MSAL accessTokens cache file")
 }
 
 function CreateAppSP($name) {
@@ -40,11 +63,30 @@ function CreateAppSP($name) {
 }
 
 # =================== MAIN ===========================
-$prgName = (Get-PSCallStack)[0].Command.Split(".")[0]
-
-if ([string]::IsNullOrWhiteSpace($name)) {
-    print_usage  # User must supply at least a DisplayName
+if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
+    print_usage  # Don't accept less than 1 or more than 4 arguments
 }
+
+# Create utility config directory
+# $env:USERPROFILE = $pwd    # Test with working dir
+if ( $null -eq $env:USERPROFILE ) {
+    die "Missing USERPROFILE environment variable"
+} else {
+    $global:confdir = Join-Path -Path $env:USERPROFILE -ChildPath ("." + $prgname)
+    Write-Host $global:confdir
+    if (-not (Test-Path -LiteralPath $global:confdir)) {
+        try {
+            New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
+        }
+        catch {
+            die "Unable to create directory '$global:confdir'. Error was: $_"
+        }
+    }
+
+}
+
+die "Done"
+
 
 # Set up required scopes and connect to MS Graph
 $scopes = @(
