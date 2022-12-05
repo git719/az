@@ -58,11 +58,11 @@ function load_file_json($filePath) {
     Write-Host "Pass"
 }
 
-function save_file_json($filePath) {
+function save_file_json($jsonObject, $filePath) {
     Write-Host "Pass"
 }
 
-function print_json($jsonObj) {
+function print_json($jsonObject) {
     Write-Host "Pass"
 }
 
