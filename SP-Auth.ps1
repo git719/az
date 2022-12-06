@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "12"
+$global:prgver          = "13"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -61,7 +61,7 @@ function load_file_yaml($filePath) {
 }
 
 function load_file_json($filePath) {
-    Write-Host "Pass"
+    return Get-Content $filePath | Out-String | ConvertFrom-Json
 }
 
 function save_file_json($jsonObject, $filePath) {
@@ -80,13 +80,13 @@ function valid_uuid($id) {
 function create_skeleton() {
     $skeleton = Join-Path -Path $pwd -ChildPath "oAuth2PermissionGrant_object.json"
     if ( file_exist $skeleton ) {
-        die "Error. File \"$skeleton\" already exists."
+        die "Error. File `"$skeleton`" already exists."
     }
-    content = {
-        "clientId":    "CLIENT_SP_UUID",
-        "consentType": "AllPrincipals",
-        "resourceId":  "API_SP_UUID",
-        "scope":       "space-separated claims list like openid profile"
+    $content = @{
+        "clientId"    = "CLIENT_SP_UUID"
+        "consentType" = "AllPrincipals"
+        "resourceId"  = "API_SP_UUID"
+        "scope"       = "space-separated claims list like openid profile"
     }
     save_file_json $content $skeleton
     exit
@@ -409,7 +409,12 @@ function delete_perms($id) {
 }
 
 function create_perms($filePath) {
-    Write-Host "Pass"
+    # Create oAuth2Perms
+    $payload = load_file_json $filePath
+    $r = api_post ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
+    if ( $null -eq $r ) {
+        print_json($r)
+    }
 }
 
 function setup_confdir () {
