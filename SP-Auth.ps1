@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "11"
+$global:prgver          = "12"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -31,6 +31,7 @@ function print_usage() {
         "        ID                                    Display oAuth2PermissionGrants object`n" +
         "        -d ID                                 Delete oAuth2PermissionGrants ID`n" +
         "        ID `"space-separated claims list`"      Update oAuth2PermissionGrants ID with provided claims list`n" +
+        "        -z                                    Dump variables in running program`n" +
         "        -cr                                   Dump values in credentials file`n" +
         "        -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login`n" +
         "        -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login`n" +
@@ -64,7 +65,8 @@ function load_file_json($filePath) {
 }
 
 function save_file_json($jsonObject, $filePath) {
-    Write-Host "Pass"
+    # Save given JSON object to given filePath
+    $jsonObject | ConvertTo-Json -depth 100 | Out-File $filePath  
 }
 
 function print_json($jsonObject) {
@@ -76,7 +78,17 @@ function valid_uuid($id) {
 }
 
 function create_skeleton() {
-    Write-Host "Pass"
+    $skeleton = Join-Path -Path $pwd -ChildPath "oAuth2PermissionGrant_object.json"
+    if ( file_exist $skeleton ) {
+        die "Error. File \"$skeleton\" already exists."
+    }
+    content = {
+        "clientId":    "CLIENT_SP_UUID",
+        "consentType": "AllPrincipals",
+        "resourceId":  "API_SP_UUID",
+        "scope":       "space-separated claims list like openid profile"
+    }
+    save_file_json $content $skeleton
     exit
 }
 
@@ -455,7 +467,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     } elseif ( ( $arg1 -eq "-a" ) -and ( file_exist $arg2 ) ) {
         create_perms $arg2
     } elseif ( valid_oauth_id $arg1 ) {
-        update_perms $arg1 $arg2   # Bogus values will generate the appropriate error messages
+        update_perms $arg1 $arg2
     } else {
         print_usage
     }
