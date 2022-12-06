@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "6"
+$global:prgver          = "7"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -298,11 +298,23 @@ function show_sp_perms($id) {
 }
 
 function valid_oauth_id($id) {
-    Write-Host "Pass"
+    # Is this a valid oAuth2PermissionGrant ID?
+    $r = api_get ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    if ( $null -eq $r ) {
+        return $false
+    } else {
+        return $true
+    }
 }
 
 function show_perms($id) {
-    Write-Host "Pass"
+    # Show oAuth2PermissionGrant permissions
+    $r = api_get ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    if ( $null -eq $r.error ) {
+        print_json($r)
+    } else {
+        die $r
+    }
 }
 
 function update_perms($id, $claims) {
