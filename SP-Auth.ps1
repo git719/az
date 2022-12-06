@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "5"
+$global:prgver          = "6"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -259,8 +259,6 @@ function api_get($resource, $headers, $params) {
     try {
         # Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"  ## DEBUG ##
         $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Method Get
-        if ( ($status_code -eq 200) -and ($r -is [int]) ) {
-            return $r        # Handle $count filter integer returns
         return $r
     }
     catch {
@@ -289,7 +287,7 @@ function show_sp_perms($id) {
     foreach ($api in $r.value) {
         $api_name = "Unknown"
         $r2 = api_get ($mg_url + "/v1.0/servicePrincipals/" + $api.resourceId)
-        if ( $null -eq $r2.appDisplayName) {
+        if ( !$null -eq $r2.appDisplayName) {
             $api_name = $r2.appDisplayName
             $claims = -Split $api.scope.Trim()
             foreach ($i in $claims) {
