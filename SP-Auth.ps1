@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "10"
+$global:prgver          = "11"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -253,7 +253,7 @@ function get_token($scopes) {
 }
 
 function api_get() {
-    param ( [string]$resource, $headers, $params, [boolean]$verbose = $false, [switch]$silent )
+    param ( [string]$resource, $headers, $params, [switch]$verbose, [switch]$silent )
     if ( $headers.Count -eq 0 ) {
         $headers = $global:mg_headers
     }
@@ -275,7 +275,7 @@ function api_get() {
 }
 
 function api_delete() {
-    param ( [string]$resource, $headers, $params, $data, [boolean]$verbose = $false, [switch]$silent )
+    param ( [string]$resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
     if ( $headers.Count -eq 0 ) {
         $headers = $global:mg_headers
     }
@@ -298,7 +298,7 @@ function api_delete() {
 }
 
 function api_patch() {
-    param ( [string]$resource, $headers, $params, $data, [boolean]$verbose = $false, [switch]$silent )
+    param ( [string]$resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
     if ( $headers.Count -eq 0 ) {
         $headers = $global:mg_headers
     }
@@ -321,7 +321,7 @@ function api_patch() {
 }
 
 function api_post() {
-    param ( [string]$resource, $headers, $params, $data, [boolean]$verbose = $false, [switch]$silent )
+    param ( [string]$resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
     if ( $headers.Count -eq 0 ) {
         $headers = $global:mg_headers
     }
@@ -384,7 +384,7 @@ function show_perms($id) {
 function update_perms($id, $claims) {
     if ( valid_oauth_id $id ) {  # Ensure this is legit oAuth2Perms id
         # Update oAuth2Perms
-        $payload = @{} + { "scope", $claims }
+        $payload = @{ "scope" = $claims } | ConvertTo-Json
         $r = api_patch ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -data $payload
         if ( $null -eq $r ) {
             print_json($r)
