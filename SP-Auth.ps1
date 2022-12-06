@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "8"
+$global:prgver          = "9"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -266,15 +266,35 @@ function api_get($resource, $headers, $params) {
     }
 }
 
-function api_delete($resource, $headers=$null, $params=$null, $verbose=$false, $data=$null) {
+function api_delete($resource, $headers, $params, $data) {
     Write-Host "Pass"
 }
 
-function api_patch($resource, $headers=$null, $params=$null, $verbose=$false, $data=$null) {
-    Write-Host "Pass"
+function api_patch($resource, $headers, $params, $data) {
+    param (
+        [string]$resource,
+        [string]$headers,
+        [string]$params,
+        [string]$data,
+        [boolean]$verbose = $false,
+    )
+    if ( $headers.Count -eq 0 ) {
+        $headers = $global:mg_headers
+    }
+    try {
+        if ( $verbose ) {
+            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
+            Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
+        }
+        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method Patch
+        return $r
+    }
+    catch {
+        die $_
+    }
 }
 
-function api_post($resource, $headers=$null, $params=$null, $verbose=$false, $data=$null) {
+function api_post($resource, $headers, $params, $data) {
     Write-Host "Pass"
 }
 
@@ -321,7 +341,7 @@ function update_perms($id, $claims) {
     if ( valid_oauth_id $id ) {  # Ensure this is legit oAuth2Perms id
         # Update oAuth2Perms
         $payload = @{} + { "scope" = $claims }
-        $r = api_patch ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id, data=$payload)
+        $r = api_patch ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -data $payload
         if ( $r.status_code -ne 204 ) {
             print_json($r)
         }
