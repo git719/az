@@ -3,11 +3,9 @@
 #Requires -Modules powershell-yaml
 #Requires -Modules MSAL.PS
 
-# Work in progress 
-
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "13"
+$global:prgver          = "14"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -405,12 +403,16 @@ function update_perms($id, $claims) {
 }
 
 function delete_perms($id) {
-    Write-Host "Pass"
+    # Delete oAuth2Perms
+    $r = api_delete ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    if ( $null -eq $r ) {
+        print_json($r)
+    }
 }
 
 function create_perms($filePath) {
     # Create oAuth2Perms
-    $payload = load_file_json $filePath
+    $payload = load_file_json $filePath | ConvertTo-Json
     $r = api_post ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
     if ( $null -eq $r ) {
         print_json($r)
