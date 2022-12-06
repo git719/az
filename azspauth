@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "5"
+prgver          = "11"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""
@@ -46,6 +46,7 @@ def print_usage():
         "         ID                                    Display oAuth2PermissionGrants object\n"
         "         -d ID                                 Delete oAuth2PermissionGrants ID\n"
         "         ID \"space-separated claims list\"      Update oAuth2PermissionGrants ID with provided claims list\n"
+        "         -z                                    Dump variables in running program\n"
         "         -cr                                   Dump values in credentials file\n"
         "         -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login\n"
         "         -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login\n"
@@ -349,10 +350,6 @@ def api_post(resource, headers=None, params=None, verbose=False, data=None):
 
 
 def show_sp_perms(id):
-    # r = api_get(mg_url + "/v1.0/oauth2PermissionGrants")
-    # print_json(r)
-    # exit(0)    
-
     # Show SP MS Graph API permissions
     r = api_get(mg_url + "/v1.0/servicePrincipals/" + id + "/oauth2PermissionGrants")
     if "value" not in r or len(r["value"]) < 1:
@@ -455,8 +452,10 @@ def main(args = None):
             delete_perms(arg2)
         elif arg1 == "-a" and file_exist(arg2):
             create_perms(arg2)
-        else:    
-            update_perms(arg1, arg2)  # If values are bogus, the API will keep us honest
+        elif valid_oauth_id(arg1):   
+            update_perms(arg1, arg2)
+        else:
+            print_usage()
     elif number_of_args == 3: # Process 3-argument requests
         arg1 = sys.argv[1]
         arg2 = sys.argv[2]
