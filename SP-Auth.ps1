@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "9"
+$global:prgver          = "10"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -252,32 +252,30 @@ function get_token($scopes) {
     # TO VIEW TOKEN: Install-Module JWTDetails and cat $token | Get-JWTDetails
 }
 
-function api_get($resource, $headers, $params) {
+function api_get() {
+    param ( [string]$resource, $headers, $params, [boolean]$verbose = $false, [switch]$silent )
     if ( $headers.Count -eq 0 ) {
         $headers = $global:mg_headers
     }
     try {
-        # Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"  ## DEBUG ##
-        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Method Get
+        if ( $verbose ) {
+            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
+        }
+        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Method 'Get'
+        # Is $status_code needed?
         return $r
     }
     catch {
-        die $_
+        if ( $silent ) {
+            return
+         } else {
+            Write-Host $_
+        }
     }
 }
 
-function api_delete($resource, $headers, $params, $data) {
-    Write-Host "Pass"
-}
-
-function api_patch($resource, $headers, $params, $data) {
-    param (
-        [string]$resource,
-        [string]$headers,
-        [string]$params,
-        [string]$data,
-        [boolean]$verbose = $false,
-    )
+function api_delete() {
+    param ( [string]$resource, $headers, $params, $data, [boolean]$verbose = $false, [switch]$silent )
     if ( $headers.Count -eq 0 ) {
         $headers = $global:mg_headers
     }
@@ -286,16 +284,63 @@ function api_patch($resource, $headers, $params, $data) {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
             Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
         }
-        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method Patch
+        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Delete'
+        # Is $status_code needed?
         return $r
     }
     catch {
-        die $_
+        if ( $silent ) {
+            return
+         } else {
+            Write-Host $_
+        }
     }
 }
 
-function api_post($resource, $headers, $params, $data) {
-    Write-Host "Pass"
+function api_patch() {
+    param ( [string]$resource, $headers, $params, $data, [boolean]$verbose = $false, [switch]$silent )
+    if ( $headers.Count -eq 0 ) {
+        $headers = $global:mg_headers
+    }
+    try {
+        if ( $verbose ) {
+            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
+            Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
+        }
+        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Patch'
+        # Is $status_code needed?
+        return $r
+    }
+    catch {
+        if ( $silent ) {
+            return
+         } else {
+            Write-Host $_
+        }
+    }
+}
+
+function api_post() {
+    param ( [string]$resource, $headers, $params, $data, [boolean]$verbose = $false, [switch]$silent )
+    if ( $headers.Count -eq 0 ) {
+        $headers = $global:mg_headers
+    }
+    try {
+        if ( $verbose ) {
+            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
+            Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
+        }
+        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Post'
+        # Is $status_code needed?
+        return $r
+    }
+    catch {
+        if ( $silent ) {
+            return
+         } else {
+            Write-Host $_
+        }
+    }
 }
 
 function show_sp_perms($id) {
@@ -319,12 +364,11 @@ function show_sp_perms($id) {
 
 function valid_oauth_id($id) {
     # Is this a valid oAuth2PermissionGrant ID?
-    $r = api_get ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    $r = api_get ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -silent
     if ( $null -eq $r ) {
         return $false
-    } else {
-        return $true
     }
+    return $true
 }
 
 function show_perms($id) {
@@ -340,9 +384,9 @@ function show_perms($id) {
 function update_perms($id, $claims) {
     if ( valid_oauth_id $id ) {  # Ensure this is legit oAuth2Perms id
         # Update oAuth2Perms
-        $payload = @{} + { "scope" = $claims }
+        $payload = @{} + { "scope", $claims }
         $r = api_patch ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -data $payload
-        if ( $r.status_code -ne 204 ) {
+        if ( $null -eq $r ) {
             print_json($r)
         }
     }
