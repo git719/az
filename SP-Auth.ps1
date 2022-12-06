@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "7"
+$global:prgver          = "8"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -318,7 +318,14 @@ function show_perms($id) {
 }
 
 function update_perms($id, $claims) {
-    Write-Host "Pass"
+    if ( valid_oauth_id $id ) {  # Ensure this is legit oAuth2Perms id
+        # Update oAuth2Perms
+        $payload = @{} + { "scope" = $claims }
+        $r = api_patch ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id, data=$payload)
+        if ( $r.status_code -ne 204 ) {
+            print_json($r)
+        }
+    }
 }
 
 function delete_perms($id) {
@@ -383,8 +390,10 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
         delete_perms $arg2
     } elseif ( ( $arg1 -eq "-a" ) -and ( file_exist $arg2 ) ) {
         create_perms $arg2
-    } else {
+    } elseif ( valid_oauth_id $arg1 ) {
         update_perms $arg1 $arg2   # Bogus values will generate the appropriate error messages
+    } else {
+        print_usage
     }
 } elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
     $arg1 = $args[0]
