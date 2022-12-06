@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "4"
+prgver          = "5"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""
@@ -49,7 +49,7 @@ def print_usage():
         "         -cr                                   Dump values in credentials file\n"
         "         -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login\n"
         "         -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login\n"
-		"         -tx                                   Delete MSAL accessTokens cache file")
+		"         -tx                                   Delete MSAL local cache file")
 
 
 def panic(msg):
@@ -118,6 +118,7 @@ def create_skeleton():
         "scope":       "space-separated claims list"
     }
     save_file_json(content, skeleton)
+    exit(0)
 
 
 def dump_variables():
@@ -127,7 +128,7 @@ def dump_variables():
         print("%-16s %s" % ("username:", username))
         print("%-16s %s" % ("interactive:", "true"))
     else:
-        #print("%-16s %s" % ("client_id:", client_id))
+        print("%-16s %s" % ("client_id:", client_id))
         print("%-16s %s" % ("client_secret:", client_secret))
     print("%-16s %s" % ("authority_url:", authority_url))
     if "mg_url" in globals():
@@ -142,7 +143,7 @@ def dump_variables():
         print("az_headers:")
         for k, v in az_headers.items():
             print("  %-14s %s" % (k + ":", v))
-    exit(1)
+    exit(0)
 
 
 def dump_credentials():
@@ -156,7 +157,7 @@ def dump_credentials():
     else:
         print("%-14s %s" % ("client_id:", creds["client_id"]))
         print("%-14s %s" % ("client_secret:", creds["client_secret"]))
-    exit(1)
+    exit(0)
 
 
 def setup_interactive_login(tenant_id, username):
@@ -222,7 +223,7 @@ def setup_api_tokens():
 	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
 
     mg_scope = [mg_url + "/.default"]  # The scope is a list of strings
-	# Appending '/.default' will allow using all static and consented permissions of the identity in use
+	# Appending '/.default' allows using all static and consented permissions of the identity in use
 	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
     mg_token = get_token(mg_scope)     # Note, these are 2 global variable we are updating!
     mg_headers = {'Authorization': 'Bearer ' + mg_token, 'Content-Type': 'application/json'}
@@ -428,17 +429,20 @@ def main(args = None):
 
     if number_of_args == 1:  # Process 1-argument requests
         arg1 = sys.argv[1]
+        # These 1-arg request don't need for API tokens to be setup
+        if arg1 == "-cr":
+            dump_credentials()
+        elif arg1 == "-tx":
+            remove_file(os.path.join(confdir, "accessTokens.json"))
+            exit(0)
+        elif arg1 == "-k":
+            create_skeleton()
+        # The rest do need API Tokens set up
         setup_api_tokens()
         if valid_uuid(arg1):
             show_sp_perms(arg1)
-        elif arg1 == "-k":
-            create_skeleton()
-        elif arg1 == "-tx":
-            remove_file(os.path.join(confdir, "accessTokens.json"))
         elif arg1 == "-z":
             dump_variables()
-        elif arg1 == "-cr":
-            dump_credentials()
         elif valid_oauth_id(arg1):
             show_perms(arg1)
         else:
@@ -452,7 +456,7 @@ def main(args = None):
         elif arg1 == "-a" and file_exist(arg2):
             create_perms(arg2)
         else:    
-            update_perms(arg1, arg2)  # Bogus values will generate the appropriate error messages
+            update_perms(arg1, arg2)  # If values are bogus, the API will keep us honest
     elif number_of_args == 3: # Process 3-argument requests
         arg1 = sys.argv[1]
         arg2 = sys.argv[2]

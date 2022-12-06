@@ -1,10 +1,13 @@
 # SP-Auth.ps1
 
+#Requires -Modules powershell-yaml
+#Requires -Modules MSAL.PS
+
 # Work in progress 
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "3"
+$global:prgver          = "4"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -34,24 +37,26 @@ function print_usage() {
 		"        -tx                                   Delete MSAL accessTokens cache file")
 }
 
-function panic($s) {
-    Write-Host "Pass"
-}
-
 function file_exist($filePath) {
-    Write-Host "Pass"
+    return Test-Path -LiteralPath $filePath
 }
 
 function file_size($filePath) {
-    Write-Host "Pass"
+    return (Get-Item -Path $filePath).Length
 }
 
 function remove_file($filePath) {
-    Write-Host "Pass"
+    Remove-Item $filePath
 }
 
 function load_file_yaml($filePath) {
-    Write-Host "Pass"
+    # Read/load/decode given filePath as some YAML object
+    [string[]]$fileContent = Get-Content $filePath
+    $content = ''
+    foreach ($line in $fileContent) {
+        $content = $content + "`n" + $line
+    }
+    return ConvertFrom-YAML $content
 }
 
 function load_file_json($filePath) {
@@ -67,39 +72,184 @@ function print_json($jsonObject) {
 }
 
 function valid_uuid($id) {
-    Write-Host "Pass"
+    return [guid]::TryParse($id, $([ref][guid]::Empty))
 }
 
 function create_skeleton() {
     Write-Host "Pass"
+    exit
 }
 
 function dump_variables() {
-    Write-Host "Pass"
+    # Dump essential global variables
+    Write-Host ("{0,-16} {1}" -f "tenant_id:", $global:tenant_id)
+    if ( $global:interactive.ToString().ToLower() -eq "true" ) {
+        Write-Host ("{0,-16} {1}" -f "username:", $global:username)
+        Write-Host ("{0,-16} {1}" -f "interactive:", "true")
+    } else {
+        Write-Host ("{0,-16} {1}" -f "client_id:", $global:client_id)
+        Write-Host ("{0,-16} {1}" -f "client_secret:", $global:client_secret)
+    }
+    Write-Host ("{0,-16} {1}" -f "authority_url:", $global:authority_url)
+    if ( Test-Path variable:global:mg_url ) {
+        Write-Host ("{0,-16} {1}" -f "mg_url:", $global:mg_url)
+    }
+    if ( Test-Path variable:global:az_url ) {
+        Write-Host ("{0,-16} {1}" -f "az_url:", $global:az_url)
+    }
+    if ( Test-Path variable:global:mg_headers ) {
+        Write-Host "mg_headers:"
+        $global:mg_headers.GetEnumerator() | ForEach-Object {
+            Write-Host ("  {0,-14} {1}" -f $_.Key, $_.Value)
+        }
+    }
+    if ( Test-Path variable:global:az_headers ) {
+        Write-Host "az_headers:"
+        $global:az_headers.GetEnumerator() | ForEach-Object {
+            Write-Host ("  {0,-14} {1}" -f $_.Key, $_.Value)
+        }
+    }
+    exit
 }
 
 function dump_credentials() {
-    Write-Host "Pass"
+    # Dump credentials file
+    $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
+    $creds = load_file_yam $creds_file
+    Write-Host ("{0,-14} {1}" -f "tenant_id", $creds["tenant_id"])
+    if ($null -eq $creds["interactive"]) {
+        Write-Host ("{0,-14} {1}" -f "client_id", $creds["client_id"])
+        Write-Host ("{0,-14} {1}" -f "client_secret", $creds["client_secret"])
+    } else {
+        Write-Host ("{0,-14} {1}" -f "username", $creds["username"])
+        Write-Host ("{0,-14} {1}" -f "interactive", $creds["interactive"])
+    }
+    exit
 }
 
 function setup_interactive_login($tenant_id, $username) {
-    Write-Host "Pass"
+    # Set up credentials file for interactive login
+    $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
+    if ( -not (valid_uuid $tenant_id) ) {
+        die "Error. TENANT_ID is an invalid UUID."
+    }
+    $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "username:", $username, "interactive:", "true"
+    Set-Content $creds_file $creds_text
+    Write-Host "$creds_file : Updated credentials"
 }
 
 function setup_automated_login($tenant_id, $client_id, $secret) {
-    Write-Host "Pass"
+    # Set up credentials file for client_id + secret login
+    $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
+    if ( -not (valid_uuid $tenant_id) ) {
+        die "Error. TENANT_ID is an invalid UUID."
+    }
+    if ( -not (valid_uuid $client_id) ) {
+        die "Error. CLIENT_ID is an invalid UUID."
+    }
+    $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "client_id:", $client_id, "secret:", $secret
+    Set-Content $creds_file $creds_text
+    Write-Host "$creds_file : Updated credentials"
 }
 
 function setup_credentials() {
-    Write-Host "Pass"
+    # Read credentials file and set up authentication parameters as global variables
+    $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
+    if ( (-not (file_exist $creds_file)) -or ((file_size $creds_file) -lt 1) ) {
+        die "Missing credentials file: '$creds_file'`n",
+            "Please rerun program using '-cr' or '-cri' option to specify credentials."
+    }
+    $creds = load_file_yaml $creds_file
+    $global:tenant_id = $creds["tenant_id"]
+    if ( -not (valid_uuid $global:tenant_id) ) {
+        die "[$creds_file] tenant_id '$global:tenant_id' is not a valid UUID"
+    }
+    if ( $null -eq $creds["interactive"]) {
+        $global:client_id = $creds["client_id"]
+        if ( -not (valid_uuid $global:client_id) ) {
+            die "[$creds_file] client_id '$global:client_id' is not a valid UUID."
+        }
+        $global:client_secret = $creds["client_secret"]
+        if ( $null -eq $global:client_secret ) {
+            die "[$creds_file] client_secret is blank"
+        }
+    } else {
+        $global:username = $creds["username"]
+        $global:interactive = $creds["interactive"]
+    }
 }
 
 function setup_api_tokens() {
-    Write-Host "Pass"
+    # Initialize necessary global variables, acquire all API tokens, and set them up for use
+    setup_credentials  # Sets up tenant ID, client ID, authentication method, etc
+    $global:authority_url = "https://login.microsoftonline.com/" + $global:tenant_id
+
+	# This utility calls 2 different resources, the Azure Resource Management (ARM) and MS Graph APIs, and each needs
+	# its own separate token. The Microsoft identity platform does not allow you to get a token for several resources at once.
+	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
+
+    $global:mg_scope = @($global:mg_url + "/.default")  # The scope is a list of strings
+	# Appending '/.default' allows using all static and consented permissions of the identity in use
+	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
+    $global:mg_token = get_token $global:mg_scope     # Note, these are 2 global variable we are updating!
+    $global:mg_headers = @{"Authorization" = "Bearer " + $global:mg_token}
+    $global:mg_headers.Add("Content-Type", "application/json")
+
+	# You would get other API tokens here ...
 }
 
 function get_token($scopes) {
-    Write-Host "Pass"
+    # See https://github.com/AzureAD/MSAL.PS for more details on these cmdlets
+    # Why does this module cache the 'client apps'? It should just be caching accounts + tokens??
+
+    if ( $global:interactive.ToString().ToLower() -eq "true" ) {
+        # Interactive login with PublicClientApplication
+        # We are using Azure PowerShell client_id for this
+        $ps_client_id = "1950a258-227b-4e31-a9cf-717495945fc2"  # Local variable
+        # See https://stackoverflow.com/questions/30454771/how-does-azure-powershell-work-with-username-password-based-auth
+
+        # First, let's try getting a client app from the cache
+        $app = Get-MsalClientApplication -ClientId $ps_client_id  # 'Get'
+        if ( $null -eq $app ) {
+            # Else, let's get a new 'New' client app
+            $app = New-MsalClientApplication -Authority $global:authority_url -PublicClientOptions @{
+                TenantId = $global:tenant_id;
+                ClientId = $ps_client_id
+            }
+            if ( $null -eq $app ) {
+                die "Error getting Public client app."
+            }
+            # Cache this client app for future sessions
+            Enable-MsalTokenCacheOnDisk $app -WarningAction SilentlyContinue
+            Add-MsalClientApplication $app
+        }
+    } else {
+        # Client_id + secret login automated login with ConfidentialClientApplication
+        # First, let's try getting a client app from the cache
+        $app = Get-MsalClientApplication -ClientId $global:client_id  # 'Get'
+        if ( $null -eq $app ) {
+            # Else, let's get a new 'New' client app
+            $app = New-MsalClientApplication -Authority $global:authority_url -ConfidentialClientOptions @{
+                TenantId = $global:tenant_id;
+                ClientId = $global:client_id;
+                ClientSecret = $global:client_secret
+            }
+            if ( $null -eq $app ) {
+                die "Error getting Confidential client app."
+            }
+            # Cache this client app for future sessions
+            Enable-MsalTokenCacheOnDisk $app -WarningAction SilentlyContinue
+            Add-MsalClientApplication $app
+        }
+    }
+    # Getting here means we successfully acquired an app, so now let's get a token
+    $token = $app | Get-MsalToken -Scope $scopes
+    if ( $null -eq $token ) {
+        die "Error getting token."
+    } else {
+        return $token.AccessToken   # We only care about the 'secret' string part
+    }
+    # TO VIEW TOKEN: Install-Module JWTDetails and cat $token | Get-JWTDetails
 }
 
 function api_get($resource, $headers=$null, $params=$null, $verbose=$false) {
@@ -145,12 +295,12 @@ function create_perms($filePath) {
 function setup_confdir () {
     # Create the utility's config directory
     # $env:USERPROFILE = $pwd    # Test with working dir
+    Write-Host "USERPROFILE = '$env:USERPROFILE'"
     if ( $null -eq $env:USERPROFILE ) {
         die "Missing USERPROFILE environment variable"
     } else {
         $global:confdir = Join-Path -Path $env:USERPROFILE -ChildPath ("." + $prgname)
-        Write-Host $global:confdir
-        if (-not (Test-Path -LiteralPath $global:confdir)) {
+        if (-not (file_exist $global:confdir)) {
             try {
                 New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
             }
@@ -170,17 +320,20 @@ setup_confdir
 
 if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg1 = $args[0]
+    # These 1-arg request don't need for API tokens to be setup
+    if ( $arg1 -eq "-cr" ) {
+        dump_credentials
+    } elseif ( $arg1 -eq "-tx" ) {
+        Clear-MsalTokenCache -FromDisk
+    } elseif ( $arg1 -eq "-k" ) {
+        create_skeleton
+    }
+    # The rest do need API Tokens set up
     setup_api_tokens
     if ( valid_uuid $arg1 ) {
         show_sp_perms $arg1 
-    } elseif ( $arg1 -eq "-k" ) {
-        create_skeleton
-    } elseif ( $arg1 -eq "-tx" ) {
-        remove_file #os.path.join(confdir, "accessTokens.json") 
     } elseif ( $arg1 -eq "-z" ) {
         dump_variables
-    } elseif ( $arg1 -eq "-cr" ) {
-        dump_credentials
     } elseif ( valid_oauth_id $arg1 ) {
         show_perms $arg1
     } else {
@@ -195,7 +348,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     } elseif ( ( $arg1 -eq "-a" ) -and ( file_exist $arg2 ) ) {
         create_perms $arg2
     } else {
-        update_perms $arg1 $arg2
+        update_perms $arg1 $arg2   # Bogus values will generate teh appropriate error messages
     }
 } elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
     $arg1 = $args[0]
@@ -203,6 +356,8 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg3 = $args[2]
     if ( $arg1 -eq "-cri" ) {
         setup_interactive_login $arg2 $arg3
+    } else {
+        print_usage
     }
 } elseif ( $args.Count -eq 4 ) {  # Process 4-argument requests
     $arg1 = $args[0]
@@ -211,6 +366,8 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg4 = $args[3]
     if ( $arg1 -eq "-cr" ) {
         setup_automated_login $arg2 $arg3 $arg4
+    } else {
+        print_usage
     }
 } else {
     print_usage
