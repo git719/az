@@ -34,7 +34,7 @@ function print_usage() {
         "        -cr                                   Dump values in credentials file`n" +
         "        -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login`n" +
         "        -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login`n" +
-		"        -tx                                   Delete MSAL accessTokens cache file")
+        "        -tx                                   Delete MSAL local session cache")
 }
 
 function file_exist($filePath) {
@@ -115,14 +115,14 @@ function dump_variables() {
 function dump_credentials() {
     # Dump credentials file
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
-    $creds = load_file_yam $creds_file
-    Write-Host ("{0,-14} {1}" -f "tenant_id", $creds["tenant_id"])
-    if ($null -eq $creds["interactive"]) {
-        Write-Host ("{0,-14} {1}" -f "client_id", $creds["client_id"])
-        Write-Host ("{0,-14} {1}" -f "client_secret", $creds["client_secret"])
+    $creds = load_file_yaml $creds_file
+    Write-Host ("{0,-14} {1}" -f "tenant_id:", $creds["tenant_id"])
+    if ( $null -eq $creds["interactive"] ) {
+        Write-Host ("{0,-14} {1}" -f "client_id:", $creds["client_id"])
+        Write-Host ("{0,-14} {1}" -f "client_secret:", $creds["client_secret"])
     } else {
-        Write-Host ("{0,-14} {1}" -f "username", $creds["username"])
-        Write-Host ("{0,-14} {1}" -f "interactive", $creds["interactive"])
+        Write-Host ("{0,-14} {1}" -f "username:", $creds["username"])
+        Write-Host ("{0,-14} {1}" -f "interactive:", $creds["interactive"])
     }
     exit
 }
@@ -147,7 +147,7 @@ function setup_automated_login($tenant_id, $client_id, $secret) {
     if ( -not (valid_uuid $client_id) ) {
         die "Error. CLIENT_ID is an invalid UUID."
     }
-    $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "client_id:", $client_id, "secret:", $secret
+    $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "client_id:", $client_id, "client_secret:", $secret
     Set-Content $creds_file $creds_text
     Write-Host "$creds_file : Updated credentials"
 }
@@ -164,7 +164,7 @@ function setup_credentials() {
     if ( -not (valid_uuid $global:tenant_id) ) {
         die "[$creds_file] tenant_id '$global:tenant_id' is not a valid UUID"
     }
-    if ( $null -eq $creds["interactive"]) {
+    if ( $null -eq $creds["interactive"] ) {
         $global:client_id = $creds["client_id"]
         if ( -not (valid_uuid $global:client_id) ) {
             die "[$creds_file] client_id '$global:client_id' is not a valid UUID."
@@ -184,18 +184,18 @@ function setup_api_tokens() {
     setup_credentials  # Sets up tenant ID, client ID, authentication method, etc
     $global:authority_url = "https://login.microsoftonline.com/" + $global:tenant_id
 
-	# This utility calls 2 different resources, the Azure Resource Management (ARM) and MS Graph APIs, and each needs
-	# its own separate token. The Microsoft identity platform does not allow you to get a token for several resources at once.
-	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
+    # This utility calls 2 different resources, the Azure Resource Management (ARM) and MS Graph APIs, and each needs
+    # its own separate token. The Microsoft identity platform does not allow you to get a token for several resources at once.
+    # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
 
     $global:mg_scope = @($global:mg_url + "/.default")  # The scope is a list of strings
-	# Appending '/.default' allows using all static and consented permissions of the identity in use
-	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
+    # Appending '/.default' allows using all static and consented permissions of the identity in use
+    # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
     $global:mg_token = get_token $global:mg_scope     # Note, these are 2 global variable we are updating!
     $global:mg_headers = @{"Authorization" = "Bearer " + $global:mg_token}
     $global:mg_headers.Add("Content-Type", "application/json")
 
-	# You would get other API tokens here ...
+    # You would do other API tokens setups here ...
 }
 
 function get_token($scopes) {
@@ -209,9 +209,9 @@ function get_token($scopes) {
         # See https://stackoverflow.com/questions/30454771/how-does-azure-powershell-work-with-username-password-based-auth
 
         # First, let's try getting a client app from the cache
-        $app = Get-MsalClientApplication -ClientId $ps_client_id  # 'Get'
+        $app = Get-MsalClientApplication -ClientId $ps_client_id  # GET existing
         if ( $null -eq $app ) {
-            # Else, let's get a new 'New' client app
+            # Else, let's get a NEW client app
             $app = New-MsalClientApplication -Authority $global:authority_url -PublicClientOptions @{
                 TenantId = $global:tenant_id;
                 ClientId = $ps_client_id
@@ -226,9 +226,9 @@ function get_token($scopes) {
     } else {
         # Client_id + secret login automated login with ConfidentialClientApplication
         # First, let's try getting a client app from the cache
-        $app = Get-MsalClientApplication -ClientId $global:client_id  # 'Get'
+        $app = Get-MsalClientApplication -ClientId $global:client_id  # GET existing
         if ( $null -eq $app ) {
-            # Else, let's get a new 'New' client app
+            # Else, let's get a NEW client app
             $app = New-MsalClientApplication -Authority $global:authority_url -ConfidentialClientOptions @{
                 TenantId = $global:tenant_id;
                 ClientId = $global:client_id;
@@ -294,8 +294,6 @@ function create_perms($filePath) {
 
 function setup_confdir () {
     # Create the utility's config directory
-    # $env:USERPROFILE = $pwd    # Test with working dir
-    Write-Host "USERPROFILE = '$env:USERPROFILE'"
     if ( $null -eq $env:USERPROFILE ) {
         die "Missing USERPROFILE environment variable"
     } else {
@@ -320,15 +318,16 @@ setup_confdir
 
 if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg1 = $args[0]
-    # These 1-arg request don't need for API tokens to be setup
+    # These 1-arg requests don't need for API tokens to be setup
     if ( $arg1 -eq "-cr" ) {
         dump_credentials
     } elseif ( $arg1 -eq "-tx" ) {
         Clear-MsalTokenCache -FromDisk
+        exit
     } elseif ( $arg1 -eq "-k" ) {
         create_skeleton
     }
-    # The rest do need API Tokens set up
+    # The rest do need API tokens set up
     setup_api_tokens
     if ( valid_uuid $arg1 ) {
         show_sp_perms $arg1 
@@ -348,7 +347,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     } elseif ( ( $arg1 -eq "-a" ) -and ( file_exist $arg2 ) ) {
         create_perms $arg2
     } else {
-        update_perms $arg1 $arg2   # Bogus values will generate teh appropriate error messages
+        update_perms $arg1 $arg2   # Bogus values will generate the appropriate error messages
     }
 } elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
     $arg1 = $args[0]
