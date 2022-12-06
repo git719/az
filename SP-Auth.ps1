@@ -68,7 +68,8 @@ function save_file_json($jsonObject, $filePath) {
 }
 
 function print_json($jsonObject) {
-    Write-Host "Pass"
+    Write-Host $jsonObject
+    #print(json.dumps(jsonObject, indent=2))
 }
 
 function valid_uuid($id) {
@@ -253,7 +254,26 @@ function get_token($scopes) {
 }
 
 function api_get($resource, $headers=$null, $params=$null, $verbose=$false) {
-    Write-Host "Pass"
+    if ( $headers.Count -eq 0 ) {
+        $headers = $global:mg_headers
+    }
+    try {
+        if ( verbose ) {
+            Write-Host "API CALL: $resource`nPARAMS  : $params`nHEADERS : $headers"
+        }
+        # r = requests.get(resource, headers=headers, params=params).json()
+        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -Method Get
+        Write-Host $r.value
+        Write-Host $r
+        Write-Host ($r | ConvertTo-JSON)
+        if ( isinstance(r, int) ) {  # Handle $count filter integer returns
+            return $r
+        }
+        return $r
+    }
+    catch {
+        die "Unable to create directory '$global:confdir'`n. $_"
+    }
 }
 
 function api_delete($resource, $headers=$null, $params=$null, $verbose=$false, $data=$null) {
@@ -269,7 +289,23 @@ function api_post($resource, $headers=$null, $params=$null, $verbose=$false, $da
 }
 
 function show_sp_perms($id) {
-    Write-Host "Pass"
+    # $r = api_get mg_url + "/v1.0/oauth2PermissionGrants"
+    # print_json($r)
+    # exit
+
+    # Show SP MS Graph API permissions
+    $r = api_get (mg_url + "/v1.0/servicePrincipals/" + id + "/oauth2PermissionGrants")
+    if ( ($null -eq $.value) ) {  # Check size also?
+        die "Service Principal `"$is`" has no API permissions."
+    
+    # for api in r["value"]:
+    #     api_name = "Unknown"
+    #     r = api_get(mg_url + "/v1.0/servicePrincipals/" + api["resourceId"])
+    #     if "appDisplayName" in r:
+    #         api_name = r["appDisplayName"]
+    #     claims = api["scope"].strip().split()
+    #     for i in claims:
+    #         print("%-50s %-50s %s" % (api["id"], api_name, i))
 }
 
 function valid_oauth_id($id) {
