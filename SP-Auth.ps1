@@ -7,7 +7,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "4"
+$global:prgver          = "5"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -68,8 +68,7 @@ function save_file_json($jsonObject, $filePath) {
 }
 
 function print_json($jsonObject) {
-    Write-Host $jsonObject
-    #print(json.dumps(jsonObject, indent=2))
+    Write-Host ($jsonObject | ConvertTo-Json)
 }
 
 function valid_uuid($id) {
@@ -253,26 +252,19 @@ function get_token($scopes) {
     # TO VIEW TOKEN: Install-Module JWTDetails and cat $token | Get-JWTDetails
 }
 
-function api_get($resource, $headers=$null, $params=$null, $verbose=$false) {
+function api_get($resource, $headers, $params) {
     if ( $headers.Count -eq 0 ) {
         $headers = $global:mg_headers
     }
     try {
-        if ( verbose ) {
-            Write-Host "API CALL: $resource`nPARAMS  : $params`nHEADERS : $headers"
-        }
-        # r = requests.get(resource, headers=headers, params=params).json()
-        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -Method Get
-        Write-Host $r.value
-        Write-Host $r
-        Write-Host ($r | ConvertTo-JSON)
-        if ( isinstance(r, int) ) {  # Handle $count filter integer returns
-            return $r
-        }
+        # Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"  ## DEBUG ##
+        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Method Get
+        if ( ($status_code -eq 200) -and ($r -is [int]) ) {
+            return $r        # Handle $count filter integer returns
         return $r
     }
     catch {
-        die "Unable to create directory '$global:confdir'`n. $_"
+        die $_
     }
 }
 
@@ -289,23 +281,22 @@ function api_post($resource, $headers=$null, $params=$null, $verbose=$false, $da
 }
 
 function show_sp_perms($id) {
-    # $r = api_get mg_url + "/v1.0/oauth2PermissionGrants"
-    # print_json($r)
-    # exit
-
     # Show SP MS Graph API permissions
-    $r = api_get (mg_url + "/v1.0/servicePrincipals/" + id + "/oauth2PermissionGrants")
-    if ( ($null -eq $.value) ) {  # Check size also?
-        die "Service Principal `"$is`" has no API permissions."
-    
-    # for api in r["value"]:
-    #     api_name = "Unknown"
-    #     r = api_get(mg_url + "/v1.0/servicePrincipals/" + api["resourceId"])
-    #     if "appDisplayName" in r:
-    #         api_name = r["appDisplayName"]
-    #     claims = api["scope"].strip().split()
-    #     for i in claims:
-    #         print("%-50s %-50s %s" % (api["id"], api_name, i))
+    $r = api_get ($mg_url + "/v1.0/servicePrincipals/" + $id + "/oauth2PermissionGrants")
+    if ( ($null -eq $r.value) ) {
+        die "Service Principal `"$id`" has no API permissions."
+    }
+    foreach ($api in $r.value) {
+        $api_name = "Unknown"
+        $r2 = api_get ($mg_url + "/v1.0/servicePrincipals/" + $api.resourceId)
+        if ( $null -eq $r2.appDisplayName) {
+            $api_name = $r2.appDisplayName
+            $claims = -Split $api.scope.Trim()
+            foreach ($i in $claims) {
+                Write-Host ("{0,-50} {1,-50} {2}" -f $api.id, $api_name, $i)
+            }
+        }
+    }
 }
 
 function valid_oauth_id($id) {
