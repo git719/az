@@ -1,5 +1,6 @@
-# Group-Create.ps1
-# You may need to manually install the MS Graph module: Install-Module Microsoft.Graph
+# Create-AzGroup.ps1
+
+#Requires -Modules Microsoft.Graph
 
 param (
     [string] $name,

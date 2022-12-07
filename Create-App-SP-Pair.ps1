@@ -1,5 +1,6 @@
-# App-Sp-Pair-Create.ps1
-# You may need to manually install the MS Graph module: Install-Module Microsoft.Graph
+# Create-App-Sp-Pair.ps1
+
+#Requires -Modules Microsoft.Graph
 
 param (
     [string] $name

@@ -1,11 +1,11 @@
-# SP-Auth.ps1
+# Manage-SP-Auth.ps1
 
 #Requires -Modules powershell-yaml
 #Requires -Modules MSAL.PS
 
 # Global variables
-$global:prgname         = "SP-Auth"
-$global:prgver          = "17"
+$global:prgname         = "Manage-SP-Auth"
+$global:prgver          = "18"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -280,7 +280,7 @@ function api_get() {
     catch {
         if ( $silent ) {
             return
-         } else {
+        } elseif ( $verbose ) {
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
@@ -306,7 +306,7 @@ function api_delete() {
     catch {
         if ( $silent ) {
             return
-        } else {
+        } elseif ( $verbose ) {
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
@@ -331,7 +331,7 @@ function api_patch() {
     catch {
         if ( $silent ) {
             return
-        } else {
+        } elseif ( $verbose ) {
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
@@ -357,7 +357,7 @@ function api_post() {
     catch {
         if ( $silent ) {
             return
-         } else {
+        } elseif ( $verbose ) {
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
