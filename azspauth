@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "11"
+prgver          = "15"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""

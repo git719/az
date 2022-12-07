@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "14"
+$global:prgver          = "15"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -272,7 +272,10 @@ function api_get() {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
         }
         $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Method 'Get'
-        # Is $status_code needed?
+        if ($verbose) {
+            Write-Host "StatusCode : $status_code"
+            Write-Host ($r | ConvertTo-Json)
+        }
         return $r
     }
     catch {
@@ -295,7 +298,10 @@ function api_delete() {
             Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
         }
         $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Delete'
-        # Is $status_code needed?
+        if ($verbose) {
+            Write-Host "StatusCode : $status_code"
+            Write-Host ($r | ConvertTo-Json)
+        }
         return $r
     }
     catch {
@@ -318,7 +324,10 @@ function api_patch() {
             Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
         }
         $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Patch'
-        # Is $status_code needed?
+        if ($verbose) {
+            Write-Host "StatusCode : $status_code"
+            Write-Host ($r | ConvertTo-Json)
+        }
         return $r
     }
     catch {
@@ -341,7 +350,10 @@ function api_post() {
             Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
         }
         $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Post'
-        # Is $status_code needed?
+        if ($verbose) {
+            Write-Host "StatusCode : $status_code"
+            Write-Host ($r | ConvertTo-Json)
+        }
         return $r
     }
     catch {
@@ -356,7 +368,8 @@ function api_post() {
 function show_sp_perms($id) {
     # Show SP MS Graph API permissions
     $r = api_get ($mg_url + "/v1.0/servicePrincipals/" + $id + "/oauth2PermissionGrants")
-    if ( ($null -eq $r.value) ) {
+    $temp = $r.value | ConvertTo-Json
+    if ( $null -eq $temp ) {
         die "Service Principal `"$id`" has no API permissions."
     }
     foreach ($api in $r.value) {
