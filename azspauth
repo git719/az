@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "17"
+prgver          = "18"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""
@@ -265,7 +265,7 @@ def get_token(scopes):
         try:
             target_account = None
             for account in app.get_accounts(username=None):
-                if account["username"] == username:
+                if account["username"].lower() == username.lower():
                     target_account = account
                     break
             token = app.acquire_token_silent(scopes, account=target_account)  # Try getting cached token first
