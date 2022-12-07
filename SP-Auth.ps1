@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "15"
+$global:prgver          = "16"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -271,12 +271,11 @@ function api_get() {
         if ( $verbose ) {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
         }
-        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Method 'Get'
+        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Method 'Get'
         if ($verbose) {
-            Write-Host "StatusCode : $status_code"
-            Write-Host ($r | ConvertTo-Json)
+            Write-Host $r
         }
-        return $r
+        return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $silent ) {
@@ -297,12 +296,11 @@ function api_delete() {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
             Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
         }
-        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Delete'
+        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Delete'
         if ($verbose) {
-            Write-Host "StatusCode : $status_code"
-            Write-Host ($r | ConvertTo-Json)
+            Write-Host $r
         }
-        return $r
+        return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $silent ) {
@@ -323,12 +321,11 @@ function api_patch() {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
             Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
         }
-        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Patch'
+        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Patch'
         if ($verbose) {
-            Write-Host "StatusCode : $status_code"
-            Write-Host ($r | ConvertTo-Json)
+            Write-Host $r
         }
-        return $r
+        return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $silent ) {
@@ -349,12 +346,11 @@ function api_post() {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
             Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
         }
-        $r = Invoke-RestMethod -Headers $mg_headers -Uri $resource -StatusCodeVariable status_code -Body $data -Method 'Post'
+        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Post'
         if ($verbose) {
-            Write-Host "StatusCode : $status_code"
-            Write-Host ($r | ConvertTo-Json)
+            Write-Host $r
         }
-        return $r
+        return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $silent ) {
