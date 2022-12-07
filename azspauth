@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Global variables
 prgname         = "azspauth"
-prgver          = "16"
+prgver          = "17"
 confdir         = ""
 tenant_id       = ""
 client_id       = ""
@@ -162,6 +162,8 @@ def dump_credentials():
 
 
 def setup_interactive_login(tenant_id, username):
+    print("Clearing token cache.")
+    clear_token_cache()
     # Set up credentials file for interactive login
     creds_file = os.path.join(confdir, "credentials.yaml")
     if not valid_uuid(tenant_id):
@@ -175,6 +177,8 @@ def setup_interactive_login(tenant_id, username):
 
 
 def setup_automated_login(tenant_id, client_id, secret):
+    print("Clearing token cache.")
+    clear_token_cache()
     # Set up credentials file for client_id + secret login
     creds_file = os.path.join(confdir, "credentials.yaml")
     if not valid_uuid(tenant_id):
@@ -306,6 +310,8 @@ def api_get(resource, headers=None, params=None, verbose=False):
         if verbose:
             print("API CALL: %s\nPARAMS  : %s\nHEADERS : %s" % (resource, params, headers))
         r = requests.get(resource, headers=headers, params=params).json()
+        if verbose:
+            print("RESPONSE: %s\n" % (r))
         if isinstance(r, int):  # Handle $count filter integer returns
             return r
         return r
@@ -320,6 +326,8 @@ def api_delete(resource, headers=None, params=None, verbose=False, data=None):
         if verbose:
             print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
         r = requests.delete(resource, headers=headers, params=params, json=data)
+        if verbose:
+            print("RESPONSE: %s\n" % (r))
         return r
     except Exception as e:
         panic(str(e))
@@ -332,6 +340,8 @@ def api_patch(resource, headers=None, params=None, verbose=False, data=None):
         if verbose:
             print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
         r = requests.patch(resource, headers=headers, params=params, json=data)
+        if verbose:
+            print("RESPONSE: %s\n" % (r))
         return r
     except Exception as e:
         panic(str(e))
@@ -344,6 +354,8 @@ def api_post(resource, headers=None, params=None, verbose=False, data=None):
         if verbose:
             print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
         r = requests.post(resource, headers=headers, params=params, json=data)
+        if verbose:
+            print("RESPONSE: %s\n" % (r))
         return r
     except Exception as e:
         panic(str(e))
@@ -410,6 +422,10 @@ def create_perms(filePath):
         print_json(r.json())
 
 
+def clear_token_cache():
+    remove_file(os.path.join(confdir, "accessTokens.json"))
+
+
 def main(args = None):
     number_of_args = len(sys.argv[1:])  # Not including the program itself
     if number_of_args not in [1, 2, 3, 4]:
@@ -430,7 +446,7 @@ def main(args = None):
         if arg1 == "-cr":
             dump_credentials()
         elif arg1 == "-tx":
-            remove_file(os.path.join(confdir, "accessTokens.json"))
+            clear_token_cache()
             exit(0)
         elif arg1 == "-k":
             create_skeleton()
