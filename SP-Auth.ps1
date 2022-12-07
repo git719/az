@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "SP-Auth"
-$global:prgver          = "16"
+$global:prgver          = "17"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -273,7 +273,7 @@ function api_get() {
         }
         $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Method 'Get'
         if ($verbose) {
-            Write-Host $r
+            Write-Host "RESPONSE: " $r
         }
         return ($r | ConvertFrom-Json)
     }
@@ -281,7 +281,8 @@ function api_get() {
         if ( $silent ) {
             return
          } else {
-            Write-Host $_
+            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
+            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
     }
 }
@@ -298,15 +299,16 @@ function api_delete() {
         }
         $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Delete'
         if ($verbose) {
-            Write-Host $r
+            Write-Host "RESPONSE: " $r
         }
         return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $silent ) {
             return
-         } else {
-            Write-Host $_
+        } else {
+            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
+            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
     }
 }
@@ -323,15 +325,15 @@ function api_patch() {
         }
         $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Patch'
         if ($verbose) {
-            Write-Host $r
+            Write-Host "RESPONSE: " $r
         }
-        return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $silent ) {
             return
-         } else {
-            Write-Host $_
+        } else {
+            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
+            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
     }
 }
@@ -348,7 +350,7 @@ function api_post() {
         }
         $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Post'
         if ($verbose) {
-            Write-Host $r
+            Write-Host "RESPONSE: " $r
         }
         return ($r | ConvertFrom-Json)
     }
@@ -356,7 +358,8 @@ function api_post() {
         if ( $silent ) {
             return
          } else {
-            Write-Host $_
+            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
+            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
     }
 }
