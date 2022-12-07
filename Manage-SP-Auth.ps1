@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-SP-Auth"
-$global:prgver          = "18"
+$global:prgver          = "19"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -461,7 +461,8 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     if ( $arg1 -eq "-cr" ) {
         dump_credentials
     } elseif ( $arg1 -eq "-tx" ) {
-        Clear-MsalTokenCache -FromDisk
+        Clear-MsalTokenCache            # Remove cached token from memory
+        Clear-MsalTokenCache -FromDisk  # and from disk
         exit
     } elseif ( $arg1 -eq "-k" ) {
         create_skeleton
