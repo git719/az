@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-SP-Auth"
-$global:prgver          = "19"
+$global:prgver          = "20"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -138,6 +138,8 @@ function dump_credentials() {
 }
 
 function setup_interactive_login($tenant_id, $username) {
+    Write-Host "Clearing token cache."
+    clear_token_cache
     # Set up credentials file for interactive login
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( -not (valid_uuid $tenant_id) ) {
@@ -149,6 +151,8 @@ function setup_interactive_login($tenant_id, $username) {
 }
 
 function setup_automated_login($tenant_id, $client_id, $secret) {
+    Write-Host "Clearing token cache."
+    clear_token_cache
     # Set up credentials file for client_id + secret login
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( -not (valid_uuid $tenant_id) ) {
@@ -448,6 +452,11 @@ function setup_confdir () {
     }
 }
 
+function clear_token_cache() {
+    Clear-MsalTokenCache            # Remove cached token from memory
+    Clear-MsalTokenCache -FromDisk  # and from disk
+}
+
 # =================== MAIN ===========================
 if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
     print_usage  # Don't accept less than 1 or more than 4 arguments
@@ -461,8 +470,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     if ( $arg1 -eq "-cr" ) {
         dump_credentials
     } elseif ( $arg1 -eq "-tx" ) {
-        Clear-MsalTokenCache            # Remove cached token from memory
-        Clear-MsalTokenCache -FromDisk  # and from disk
+        clear_token_cache
         exit
     } elseif ( $arg1 -eq "-k" ) {
         create_skeleton
