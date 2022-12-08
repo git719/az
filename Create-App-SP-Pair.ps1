@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "10"
+$global:prgver          = "11"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -280,7 +280,7 @@ function clear_token_cache() {
 # =================== API FUNCTIONS =======================
 function api_call() {
     param ( [string]$method, $resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
-    if ( -$null -eq $headers ) {
+    if ( $null -eq $headers ) {
         $headers = @{}
     }
     $global:mg_headers.GetEnumerator() | ForEach-Object {
