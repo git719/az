@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "6"
+$global:prgver          = "7"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -278,51 +278,26 @@ function clear_token_cache() {
 }
 
 # =================== API FUNCTIONS =======================
-function api_get() {
-    param ( [string]$resource, $headers, $params, [switch]$verbose, [switch]$silent )
-    if ( $headers.Count -eq 0 ) {
-        $headers = $global:mg_headers
+function api_call() {
+    param ( [string]$method, $resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
+    if ( $headers.Count -ne 0 ) {
+        $headers += $global:mg_headers   # Append global headers
     }
     try {
         if ( $verbose ) {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
         }
-        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Method 'Get'
+        switch ( $method.ToUpper() ) {
+            "GET"   { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
+            "POST"  { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
+        }
         if ($verbose) {
             Write-Host "RESPONSE: " $r
         }
         return ($r | ConvertFrom-Json)
     }
     catch {
-        if ( $silent ) {
-            return
-        } elseif ( $verbose ) {
-            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
-            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
-        }
-    }
-}
-
-function api_post() {
-    param ( [string]$resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
-    if ( $headers.Count -eq 0 ) {
-        $headers = $global:mg_headers
-    }
-    try {
-        if ( $verbose ) {
-            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
-            Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
-        }
-        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Post'
-        if ($verbose) {
-            Write-Host "RESPONSE: " $r
-        }
-        return ($r | ConvertFrom-Json)
-    }
-    catch {
-        if ( $silent ) {
-            return
-        } elseif ( $verbose ) {
+        if ( $verbose -or !$silent) {
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
@@ -330,10 +305,20 @@ function api_post() {
 }
 
 # =================== PROGRAM FUNCTIONS =======================
+function sp_exists($displayName) {
+    # Check if App with this name exists
+    $headers = @{ "ConsistencyLevel" = "eventual" }
+    $r = api_call "GET" ($mg_url + "/v1.0/applications?`$search=`"displayName:" + $display_name + "`"") -headers $headers -silent
+    if ( $null -eq $r ) {
+        return $false
+    }
+    return $true
+}
+
 function create_app($display_name) {
-    # Create a new basic App registration in this tenant
+    # Create a new App in this tenant
     $payload = @{ "displayName" = $display_name } | ConvertTo-Json
-    $r = api_post ($mg_url + "/v1.0/applications") -data $payload
+    $r = api_call "POST" ($mg_url + "/v1.0/applications") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.id ) ) {
         die "Error. Creating application."
     }
@@ -341,24 +326,34 @@ function create_app($display_name) {
 }
 
 function create_app_secret($app_object_id) {
-    # Now generate a new secret for this app
+    # Generate a new secret for given App Object ID
     $payload = @{
         "passwordCredential" = @{
             displayName = (Get-Date)
             endDateTime = (Get-Date).AddMonths(12)  # Default to 1 year Expiry
         }
     }
-    $r = api_post ($mg_url + "/v1.0/application/s" + $app_object_id + "addPassword") -data $payload
+    $r = api_call "POST" ($mg_url + "/v1.0/application/s" + $app_object_id + "addPassword") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.secretText ) ) {
         die "Error. Creating secret for application with Object Id '$app_object_id'."
     }
     return $r.secretText
 }
 
+function sp_exists($displayName) {
+    # Check if SP with this name exists
+    $headers = @{ "ConsistencyLevel" = "eventual" }
+    $r = api_call "GET" ($mg_url + "/v1.0/servicePrincipals?`$search=`"displayName:" + $display_name + "`"") -headers $headers -silent
+    if ( $null -eq $r ) {
+        return $false
+    }
+    return $true
+}
+
 function create_sp($appId) {
-    # Create a new basic App registration in this tenant
+    # Create a new SP in this tenant
     $payload = @{ "appId" = $appId } | ConvertTo-Json
-    $r = api_post ($mg_url + "/v1.0/applications") -data $payload
+    $r = api_call "POST" ($mg_url + "/v1.0/applications") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.id ) ) {
         die "Error. Creating SP for appId '$appId'."
     }
@@ -366,17 +361,14 @@ function create_sp($appId) {
 }
 
 function create_pair($display_name) {
-    # Ensure there is no existing application and/or service principal using this same displayName
-    $r = api_get ($mg_url + "/v1.0/applications?`$search=`"displayName:" + $name + "`"") -silent
-    if ( $!null -eq $r ) {
-        die "Error. An application named `"$name`" already exists."
+    # Create app + SP pair combo
+    if ( app_exists $displayName ) {
+        die "Error. An application named `"$display_name`" already exists."
     }
-    $r = api_get ($mg_url + "/v1.0/servicePrincipals?`$search=`"displayName:" + $name + "`"") -silent
-    if ( $!null -eq $r ) {
-        die "Error. A Service Principal named `"$name`" already exists."
+    if ( sp_exists $displayName ) {
+        die "Error. A Service Principal named `"$display_name`" already exists."
     }
-
-    Write-Host "... creating a same-name registered app + SP combo and a secret for that SP ..."
+    Write-Host "Now creating a same-name registered app + SP combo and a secret for that SP ..."
     $new_app = create_app $display_name
     $secret = create_app_secret $new_app.id
     $new_sp = create_sp -appId $new_app.AppId
