@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "9"
+$global:prgver          = "10"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -312,16 +312,16 @@ function api_call() {
 function app_exists($displayName) {
     # Check if App with this name exists
     $headers = @{ "ConsistencyLevel" = "eventual" }
-    $r = api_call "GET" ($mg_url + "/v1.0/applications?`$search=`"displayName:" + $display_name + "`"&`$count=true") -headers $headers -silent
+    $r = api_call "GET" ($mg_url + "/v1.0/applications?`$search=`"displayName:" + $displayName + "`"&`$count=true") -headers $headers -silent
     if ( $r.'@odata.count' -gt 0 ) {
         return $true
     }
     return $false
 }
 
-function create_app($display_name) {
+function create_app($displayName) {
     # Create a new App in this tenant
-    $payload = @{ "displayName" = $display_name } | ConvertTo-Json
+    $payload = @{ "displayName" = $displayName } | ConvertTo-Json
     $r = api_call "POST" ($mg_url + "/v1.0/applications") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.id ) ) {
         die "Error. Creating application."
@@ -329,7 +329,7 @@ function create_app($display_name) {
     return $r
 }
 
-function create_app_secret($app_object_id) {
+function create_app_secret($appObjectId) {
     # Generate a new secret for given App Object ID
     $payload = @{
         "passwordCredential" = @{
@@ -337,9 +337,9 @@ function create_app_secret($app_object_id) {
             endDateTime = (Get-Date).AddMonths(12)  # Default to 1 year Expiry
         }
     }
-    $r = api_call "POST" ($mg_url + "/v1.0/application/s" + $app_object_id + "addPassword") -data $payload
+    $r = api_call "POST" ($mg_url + "/v1.0/application/s" + $appObjectId + "addPassword") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.secretText ) ) {
-        die "Error. Creating secret for application with Object Id '$app_object_id'."
+        die "Error. Creating secret for application with Object Id '$appObjectId'."
     }
     return $r.secretText
 }
@@ -347,7 +347,7 @@ function create_app_secret($app_object_id) {
 function sp_exists($displayName) {
     # Check if SP with this name exists
     $headers = @{ "ConsistencyLevel" = "eventual" }
-    $r = api_call "GET" ($mg_url + "/v1.0/servicePrincipals?`$search=`"displayName:" + $display_name + "`"&`$count=true") -headers $headers -silent
+    $r = api_call "GET" ($mg_url + "/v1.0/servicePrincipals?`$search=`"displayName:" + $displayName + "`"&`$count=true") -headers $headers -silent
     if ( $r.'@odata.count' -gt 0 ) {
         return $true
     }
@@ -364,16 +364,16 @@ function create_sp($appId) {
     return $r
 }
 
-function create_pair($display_name) {
+function create_pair($displayName) {
     # Create app + SP pair combo
     if ( app_exists $displayName ) {
-        die "Error. An application named `"$display_name`" already exists."
+        die "Error. An application named `"$displayName`" already exists."
     }
     if ( sp_exists $displayName ) {
-        die "Error. A Service Principal named `"$display_name`" already exists."
+        die "Error. A Service Principal named `"$displayName`" already exists."
     }
     Write-Host "Now creating a same-name registered app + SP combo and a secret for that SP ..."
-    $new_app = create_app $display_name
+    $new_app = create_app $displayName
     $secret = create_app_secret $new_app.id
     $new_sp = create_sp -appId $new_app.AppId
     Write-Host "APP/SP  = " $new_app.DisplayName
