@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "8"
+$global:prgver          = "9"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -280,8 +280,11 @@ function clear_token_cache() {
 # =================== API FUNCTIONS =======================
 function api_call() {
     param ( [string]$method, $resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
-    if ( $headers.Count -ne 0 ) {
-        $headers += $global:mg_headers   # Append global headers
+    if ( -$null -eq $headers ) {
+        $headers = @{}
+    }
+    $global:mg_headers.GetEnumerator() | ForEach-Object {
+        $headers.Add($_.Key, $_.Value)    # Append global headers
     }
     try {
         if ( $verbose ) {
@@ -292,7 +295,8 @@ function api_call() {
             "POST"  { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
         }
         if ($verbose) {
-            Write-Host "RESPONSE: " $r
+            Write-Host "STATUS_CODE: " $r.StatusCode "`nRESPONSE`n"
+            print_json ($r | ConvertFrom-Json)
         }
         return ($r | ConvertFrom-Json)
     }
@@ -308,11 +312,11 @@ function api_call() {
 function app_exists($displayName) {
     # Check if App with this name exists
     $headers = @{ "ConsistencyLevel" = "eventual" }
-    $r = api_call "GET" ($mg_url + "/v1.0/applications?`$search=`"displayName:" + $display_name + "`"") -headers $headers -silent
-    if ( $null -eq $r ) {
-        return $false
+    $r = api_call "GET" ($mg_url + "/v1.0/applications?`$search=`"displayName:" + $display_name + "`"&`$count=true") -headers $headers -silent
+    if ( $r.'@odata.count' -gt 0 ) {
+        return $true
     }
-    return $true
+    return $false
 }
 
 function create_app($display_name) {
@@ -343,11 +347,11 @@ function create_app_secret($app_object_id) {
 function sp_exists($displayName) {
     # Check if SP with this name exists
     $headers = @{ "ConsistencyLevel" = "eventual" }
-    $r = api_call "GET" ($mg_url + "/v1.0/servicePrincipals?`$search=`"displayName:" + $display_name + "`"") -headers $headers -silent
-    if ( $null -eq $r ) {
-        return $false
+    $r = api_call "GET" ($mg_url + "/v1.0/servicePrincipals?`$search=`"displayName:" + $display_name + "`"&`$count=true") -headers $headers -silent
+    if ( $r.'@odata.count' -gt 0 ) {
+        return $true
     }
-    return $true
+    return $false
 }
 
 function create_sp($appId) {
