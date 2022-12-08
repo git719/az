@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "5"
+$global:prgver          = "6"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -64,12 +64,14 @@ function remove_file($filePath) {
 
 function load_file_yaml($filePath) {
     # Read/load/decode given filePath as some YAML object
-    [string[]]$fileContent = Get-Content $filePath
-    $content = ''
-    foreach ($line in $fileContent) {
-        $content = $content + "`n" + $line
+    if ( file_exist $filePath ) {
+        [string[]]$fileContent = Get-Content $filePath
+        $content = ''
+        foreach ($line in $fileContent) {
+            $content = $content + "`n" + $line
+        }
+        return ConvertFrom-YAML $content
     }
-    return ConvertFrom-YAML $content
 }
 
 function load_file_json($filePath) {
@@ -83,6 +85,10 @@ function save_file_json($jsonObject, $filePath) {
 
 function print_json($jsonObject) {
     Write-Host ($jsonObject | ConvertTo-Json)
+}
+
+function valid_uuid($id) {
+    return [guid]::TryParse($id, $([ref][guid]::Empty))
 }
 
 # =================== LOGIN FUNCTIONS =======================
@@ -122,6 +128,10 @@ function dump_credentials() {
     # Dump credentials file
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     $creds = load_file_yaml $creds_file
+    if ( $null -eq $creds ) {
+        die ("Error loading $creds_file`n" +
+            "Please rerun program using '-cr' or '-cri' option to specify credentials.")
+    }
     Write-Host ("{0,-14} {1}" -f "tenant_id:", $creds["tenant_id"])
     if ( $null -eq $creds["interactive"] ) {
         Write-Host ("{0,-14} {1}" -f "client_id:", $creds["client_id"])
@@ -166,8 +176,8 @@ function setup_credentials() {
     # Read credentials file and set up authentication parameters as global variables
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( (-not (file_exist $creds_file)) -or ((file_size $creds_file) -lt 1) ) {
-        die "Missing credentials file: '$creds_file'`n",
-            "Please rerun program using '-cr' or '-cri' option to specify credentials."
+        die ("Missing credentials file: '$creds_file'`n" +
+            "Please rerun program using '-cr' or '-cri' option to specify credentials.")
     }
     $creds = load_file_yaml $creds_file
     $global:tenant_id = $creds["tenant_id"]
