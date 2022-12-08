@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "7"
+$global:prgver          = "8"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -305,7 +305,7 @@ function api_call() {
 }
 
 # =================== PROGRAM FUNCTIONS =======================
-function sp_exists($displayName) {
+function app_exists($displayName) {
     # Check if App with this name exists
     $headers = @{ "ConsistencyLevel" = "eventual" }
     $r = api_call "GET" ($mg_url + "/v1.0/applications?`$search=`"displayName:" + $display_name + "`"") -headers $headers -silent
