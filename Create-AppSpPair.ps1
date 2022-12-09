@@ -1,11 +1,11 @@
-# Create-App-Sp-Pair.ps1
+# Create-AppSpPair.ps1
 
 #Requires -Modules powershell-yaml
 #Requires -Modules MSAL.PS
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "14"
+$global:prgver          = "15"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
