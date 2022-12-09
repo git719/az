@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "12"
+$global:prgver          = "13"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -302,6 +302,7 @@ function api_call() {
     }
     catch {
         if ( $verbose -or !$silent) {
+            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
@@ -332,11 +333,9 @@ function create_app($displayName) {
 function create_app_secret($appObjectId) {
     # Generate a new secret for given App Object ID
     $payload = @{
-        "passwordCredential" = @{
-            displayName = (Get-Date)
-            endDateTime = (Get-Date).AddMonths(12)  # Default to 1 year Expiry
-        }
-    }
+        displayName = (Get-Date)
+        endDateTime = (Get-Date).AddMonths(12)  # Default to 1 year Expiry
+    } | ConvertTo-Json
     $r = api_call "POST" ($mg_url + "/v1.0/applications/" + $appObjectId + "/addPassword") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.secretText ) ) {
         die "Error. Creating secret for application with Object Id '$appObjectId'."
@@ -357,7 +356,7 @@ function sp_exists($displayName) {
 function create_sp($appId) {
     # Create a new SP in this tenant
     $payload = @{ "appId" = $appId } | ConvertTo-Json
-    $r = api_call "POST" ($mg_url + "/v1.0/applications") -data $payload
+    $r = api_call "POST" ($mg_url + "/v1.0/servicePrincipals") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.id ) ) {
         die "Error. Creating SP for appId '$appId'."
     }
