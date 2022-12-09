@@ -68,14 +68,8 @@ azrm Azure RBAC role definition & assignment remover v121
      -v                                Display this usage
 ```
 
-### Create-AzGroup.ps1
-The `Create-AzGroup.ps1` script is quick example of how to create an Azure AD group using PowerShell code.
-
-### Create-App-SP-Pair.ps1
-The `Create-App-SP-Pair.ps1` script is a quick a dirty way of creating an App registration + Service Principal combo, and a password for the app. The benefit of this PowerShell version is that you can login interatively with a privileged account and create the pair. However this method also relies on delegation using Azure's built-in `Microsoft Graph PowerShell` with App ID 14d82eec-204b-4c2f-b7e8-296a70dab67e (Azure creates this app the first time a privileged user logs in an consents).
-
 ### azappsp
-This is the Python equivalent of `Create-App-SP-Pair.ps1`: 
+This is the Python equivalent of `Create-AppSpPair.ps1`: 
 
 ```
 zure App/SP combo creation utility v21
@@ -100,5 +94,11 @@ azspauth Azure SP API permissions utility v1
          -tx                                   Delete MSAL accessTokens cache file
 ```
 
-### Managed-SP-Auth.ps1
-`Manage-SP-Auth.ps1` script is the PowerShell equivalent of `azspauth`.
+### Managed-SpAuth.ps1
+The `Manage-SpAuth.ps1` script is the PowerShell equivalent of `azspauth`. It leverages the MSAL libraries, using the `MSAL.PS` module. It also use the `powershell-yaml` module to help locally store and managed the credential configuration settings.
+
+### Create-AppSpPair.ps1
+The `Create-AppSpPair.ps1` script can be used to quickly create an ad hoc App registration + Service Principal combination, and a password for the app. This script leverages the same MSAL methodologies used in the `Manage-SpAuth.ps1` script.
+
+### Create-AzGroup.ps1
+The `Create-AzGroup.ps1` script can be used to quickly create an Azure AD group from the CLI. It is still using the old PS modules, but this will be updated soon.
