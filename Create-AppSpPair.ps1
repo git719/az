@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "15"
+$global:prgver          = "16"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -24,13 +24,13 @@ function die($msg) {
 
 function print_usage() {
     die ("$prgname Azure App/SP combo creation utility v$prgver`n" +
-        "        DISPLAY_NAME                      Create an Application/Service Principal pair with this name`n" +
+        "    DISPLAY_NAME                      Create an Application/Service Principal pair with this name`n" +
         "`n" +
-        "        -z                                Dump variables in running program`n" +
-        "        -cr                               Dump values in credentials file`n" +
-        "        -cr  TENANT_ID CLIENT_ID SECRET   Set up MSAL automated client_id + secret login`n" +
-        "        -cri TENANT_ID USERNAME           Set up MSAL interactive browser popup login`n" +
-        "        -tx                               Delete MSAL local session cache")
+        "    -z                                Dump variables in running program`n" +
+        "    -cr                               Dump values in credentials file`n" +
+        "    -cr  TENANT_ID CLIENT_ID SECRET   Set up MSAL automated client_id + secret login`n" +
+        "    -cri TENANT_ID USERNAME           Set up MSAL interactive browser popup login`n" +
+        "    -tx                               Delete MSAL local session cache")
 }
 
 function setup_confdir () {
