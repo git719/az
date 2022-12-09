@@ -4,8 +4,8 @@
 #Requires -Modules MSAL.PS
 
 # Global variables
-$global:prgname         = "Manage-SP-Auth"
-$global:prgver          = "20"
+$global:prgname         = "Manage-SpAuth"
+$global:prgver          = "22"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -17,6 +17,7 @@ $global:mg_url          = "https://graph.microsoft.com"
 $global:mg_token        = @{}
 $global:mg_headers      = @{}
 
+# =================== HOUSEKEEPING FUNCTIONS =======================
 function die($msg) {
     Write-Host -ForegroundColor Yellow $msg ; exit
 }
@@ -29,11 +30,29 @@ function print_usage() {
         "        ID                                    Display oAuth2PermissionGrants object`n" +
         "        -d ID                                 Delete oAuth2PermissionGrants ID`n" +
         "        ID `"space-separated claims list`"      Update oAuth2PermissionGrants ID with provided claims list`n" +
+        "`n" +
         "        -z                                    Dump variables in running program`n" +
         "        -cr                                   Dump values in credentials file`n" +
         "        -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login`n" +
         "        -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login`n" +
         "        -tx                                   Delete MSAL local session cache")
+}
+
+function setup_confdir () {
+    # Create the utility's config directory
+    if ( $null -eq $env:USERPROFILE ) {
+        die "Missing USERPROFILE environment variable"
+    } else {
+        $global:confdir = Join-Path -Path $env:USERPROFILE -ChildPath ("." + $prgname)
+        if (-not (file_exist $global:confdir)) {
+            try {
+                New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
+            }
+            catch {
+                die "Unable to create directory '$global:confdir'. Error was: $_"
+            }
+        }
+    }
 }
 
 function file_exist($filePath) {
@@ -50,12 +69,14 @@ function remove_file($filePath) {
 
 function load_file_yaml($filePath) {
     # Read/load/decode given filePath as some YAML object
-    [string[]]$fileContent = Get-Content $filePath
-    $content = ''
-    foreach ($line in $fileContent) {
-        $content = $content + "`n" + $line
+    if ( file_exist $filePath ) {
+        [string[]]$fileContent = Get-Content $filePath
+        $content = ''
+        foreach ($line in $fileContent) {
+            $content = $content + "`n" + $line
+        }
+        return ConvertFrom-YAML $content
     }
-    return ConvertFrom-YAML $content
 }
 
 function load_file_json($filePath) {
@@ -75,21 +96,7 @@ function valid_uuid($id) {
     return [guid]::TryParse($id, $([ref][guid]::Empty))
 }
 
-function create_skeleton() {
-    $skeleton = Join-Path -Path $pwd -ChildPath "oAuth2PermissionGrant_object.json"
-    if ( file_exist $skeleton ) {
-        die "Error. File `"$skeleton`" already exists."
-    }
-    $content = @{
-        "clientId"    = "CLIENT_SP_UUID"
-        "consentType" = "AllPrincipals"
-        "resourceId"  = "API_SP_UUID"
-        "scope"       = "space-separated claims list like openid profile"
-    }
-    save_file_json $content $skeleton
-    exit
-}
-
+# =================== LOGIN FUNCTIONS =======================
 function dump_variables() {
     # Dump essential global variables
     Write-Host ("{0,-16} {1}" -f "tenant_id:", $global:tenant_id)
@@ -126,6 +133,10 @@ function dump_credentials() {
     # Dump credentials file
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     $creds = load_file_yaml $creds_file
+    if ( $null -eq $creds ) {
+        die ("Error loading $creds_file`n" +
+            "Please rerun program using '-cr' or '-cri' option to specify credentials.")
+    }
     Write-Host ("{0,-14} {1}" -f "tenant_id:", $creds["tenant_id"])
     if ( $null -eq $creds["interactive"] ) {
         Write-Host ("{0,-14} {1}" -f "client_id:", $creds["client_id"])
@@ -198,10 +209,12 @@ function setup_api_tokens() {
     setup_credentials  # Sets up tenant ID, client ID, authentication method, etc
     $global:authority_url = "https://login.microsoftonline.com/" + $global:tenant_id
 
-    # This utility calls 2 different resources, the Azure Resource Management (ARM) and MS Graph APIs, and each needs
-    # its own separate token. The Microsoft identity platform does not allow you to get a token for several resources at once.
+    # This functions allows this utility to call multiple APIs, such as the Azure Resource Management (ARM)
+    # and MS Graph, but each one needs its own separate token. The Microsoft identity platform does not allow
+    # using ONE token for several APIS resources at once.
     # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
 
+    # ==== Set up MS Graph API token 
     $global:mg_scope = @($global:mg_url + "/.default")  # The scope is a list of strings
     # Appending '/.default' allows using all static and consented permissions of the identity in use
     # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
@@ -209,7 +222,7 @@ function setup_api_tokens() {
     $global:mg_headers = @{"Authorization" = "Bearer " + $global:mg_token}
     $global:mg_headers.Add("Content-Type", "application/json")
 
-    # You would do other API tokens setups here ...
+    # You can set up other API tokens here ...
 }
 
 function get_token($scopes) {
@@ -266,118 +279,71 @@ function get_token($scopes) {
     # TO VIEW TOKEN: Install-Module JWTDetails and cat $token | Get-JWTDetails
 }
 
-function api_get() {
-    param ( [string]$resource, $headers, $params, [switch]$verbose, [switch]$silent )
-    if ( $headers.Count -eq 0 ) {
-        $headers = $global:mg_headers
+function clear_token_cache() {
+    Clear-MsalTokenCache            # Remove cached token from memory
+    Clear-MsalTokenCache -FromDisk  # and from disk
+}
+
+# =================== API FUNCTIONS =======================
+function api_call() {
+    param ( [string]$method, $resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
+    if ( $null -eq $headers ) {
+        $headers = @{}
+    }
+    $global:mg_headers.GetEnumerator() | ForEach-Object {
+        $headers.Add($_.Key, $_.Value)    # Append global headers
     }
     try {
         if ( $verbose ) {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
         }
-        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Method 'Get'
+        switch ( $method.ToUpper() ) {
+            "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
+            "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
+            "DELETE"    { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'DELETE' ; break }
+            "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
+        }
         if ($verbose) {
-            Write-Host "RESPONSE: " $r
+            Write-Host "STATUS_CODE: " $r.StatusCode "`nRESPONSE`n"
+            print_json ($r | ConvertFrom-Json)
         }
         return ($r | ConvertFrom-Json)
     }
     catch {
-        if ( $silent ) {
-            return
-        } elseif ( $verbose ) {
+        if ( $verbose -or !$silent) {
+            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
     }
 }
 
-function api_delete() {
-    param ( [string]$resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
-    if ( $headers.Count -eq 0 ) {
-        $headers = $global:mg_headers
+# =================== PROGRAM FUNCTIONS =======================
+function create_skeleton() {
+    $skeleton = Join-Path -Path $pwd -ChildPath "oAuth2PermissionGrant_object.json"
+    if ( file_exist $skeleton ) {
+        die "Error. File `"$skeleton`" already exists."
     }
-    try {
-        if ( $verbose ) {
-            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
-            Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
-        }
-        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Delete'
-        if ($verbose) {
-            Write-Host "RESPONSE: " $r
-        }
-        return ($r | ConvertFrom-Json)
+    $content = @{
+        "clientId"    = "CLIENT_SP_UUID"
+        "consentType" = "AllPrincipals"
+        "resourceId"  = "API_SP_UUID"
+        "scope"       = "space-separated claims list like openid profile"
     }
-    catch {
-        if ( $silent ) {
-            return
-        } elseif ( $verbose ) {
-            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
-            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
-        }
-    }
-}
-
-function api_patch() {
-    param ( [string]$resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
-    if ( $headers.Count -eq 0 ) {
-        $headers = $global:mg_headers
-    }
-    try {
-        if ( $verbose ) {
-            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
-            Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
-        }
-        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Patch'
-        if ($verbose) {
-            Write-Host "RESPONSE: " $r
-        }
-    }
-    catch {
-        if ( $silent ) {
-            return
-        } elseif ( $verbose ) {
-            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
-            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
-        }
-    }
-}
-
-function api_post() {
-    param ( [string]$resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
-    if ( $headers.Count -eq 0 ) {
-        $headers = $global:mg_headers
-    }
-    try {
-        if ( $verbose ) {
-            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)"
-            Write-Host "HEADERS : $($headers | ConvertTo-Json)`nDATA : $($data | ConvertTo-Json)"
-        }
-        $r = Invoke-WebRequest -Headers $mg_headers -Uri $resource -Body $data -Method 'Post'
-        if ($verbose) {
-            Write-Host "RESPONSE: " $r
-        }
-        return ($r | ConvertFrom-Json)
-    }
-    catch {
-        if ( $silent ) {
-            return
-        } elseif ( $verbose ) {
-            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
-            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
-        }
-    }
+    save_file_json $content $skeleton
+    exit
 }
 
 function show_sp_perms($id) {
     # Show SP MS Graph API permissions
-    $r = api_get ($mg_url + "/v1.0/servicePrincipals/" + $id + "/oauth2PermissionGrants")
+    $r = api_call "GET" ($mg_url + "/v1.0/servicePrincipals/" + $id + "/oauth2PermissionGrants")
     $temp = $r.value | ConvertTo-Json
     if ( $null -eq $temp ) {
         die "Service Principal `"$id`" has no API permissions."
     }
     foreach ($api in $r.value) {
         $api_name = "Unknown"
-        $r2 = api_get ($mg_url + "/v1.0/servicePrincipals/" + $api.resourceId)
+        $r2 = api_call "GET" ($mg_url + "/v1.0/servicePrincipals/" + $api.resourceId)
         if ( !$null -eq $r2.appDisplayName) {
             $api_name = $r2.appDisplayName
             $claims = -Split $api.scope.Trim()
@@ -390,7 +356,7 @@ function show_sp_perms($id) {
 
 function valid_oauth_id($id) {
     # Is this a valid oAuth2PermissionGrant ID?
-    $r = api_get ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -silent
+    $r = api_call "GET" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -silent
     if ( $null -eq $r ) {
         return $false
     }
@@ -399,7 +365,7 @@ function valid_oauth_id($id) {
 
 function show_perms($id) {
     # Show oAuth2PermissionGrant permissions
-    $r = api_get ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    $r = api_call "GET" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
     if ( $null -eq $r.error ) {
         print_json($r)
     } else {
@@ -411,7 +377,7 @@ function update_perms($id, $claims) {
     if ( valid_oauth_id $id ) {  # Ensure this is legit oAuth2Perms id
         # Update oAuth2Perms
         $payload = @{ "scope" = $claims } | ConvertTo-Json
-        $r = api_patch ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -data $payload
+        $r = api_call "PATCH" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -data $payload
         if ( $null -eq $r ) {
             print_json($r)
         }
@@ -420,7 +386,7 @@ function update_perms($id, $claims) {
 
 function delete_perms($id) {
     # Delete oAuth2Perms
-    $r = api_delete ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    $r = api_call "DELETE" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
     if ( $null -eq $r ) {
         print_json($r)
     }
@@ -429,32 +395,10 @@ function delete_perms($id) {
 function create_perms($filePath) {
     # Create oAuth2Perms
     $payload = load_file_json $filePath | ConvertTo-Json
-    $r = api_post ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
+    $r = api_call "POST" ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
     if ( $null -eq $r ) {
         print_json($r)
     }
-}
-
-function setup_confdir () {
-    # Create the utility's config directory
-    if ( $null -eq $env:USERPROFILE ) {
-        die "Missing USERPROFILE environment variable"
-    } else {
-        $global:confdir = Join-Path -Path $env:USERPROFILE -ChildPath ("." + $prgname)
-        if (-not (file_exist $global:confdir)) {
-            try {
-                New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
-            }
-            catch {
-                die "Unable to create directory '$global:confdir'. Error was: $_"
-            }
-        }
-    }
-}
-
-function clear_token_cache() {
-    Clear-MsalTokenCache            # Remove cached token from memory
-    Clear-MsalTokenCache -FromDisk  # and from disk
 }
 
 # =================== MAIN ===========================
