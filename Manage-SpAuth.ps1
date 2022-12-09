@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-SpAuth"
-$global:prgver          = "23"
+$global:prgver          = "24"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -234,6 +234,7 @@ function get_token($scopes) {
         # We are using Azure PowerShell client_id for this
         $ps_client_id = "1950a258-227b-4e31-a9cf-717495945fc2"  # Local variable
         # See https://stackoverflow.com/questions/30454771/how-does-azure-powershell-work-with-username-password-based-auth
+        # Also https://blog.darrenjrobinson.com/interactive-authentication-to-microsoft-graph-using-msal-with-powershell-and-delegated-permissions/
 
         # First, let's try getting a client app from the cache
         $app = Get-MsalClientApplication -ClientId $ps_client_id  # GET existing
