@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-SpAuth"
-$global:prgver          = "22"
+$global:prgver          = "23"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -24,18 +24,18 @@ function die($msg) {
 
 function print_usage() {
     die ("$prgname Azure SP API permissions utility v$prgver`n" +
-        "        SP_OBJECT_UUID                        Display Service Principal API permissions`n" +
-        "        -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file`n" +
-        "        -k                                    Create a skeleton oAuth2PermissionGrant_object.json file`n" +
-        "        ID                                    Display oAuth2PermissionGrants object`n" +
-        "        -d ID                                 Delete oAuth2PermissionGrants ID`n" +
-        "        ID `"space-separated claims list`"      Update oAuth2PermissionGrants ID with provided claims list`n" +
+        "    SP_OBJECT_UUID                        Display Service Principal API permissions`n" +
+        "    -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file`n" +
+        "    -k                                    Create a skeleton oAuth2PermissionGrant_object.json file`n" +
+        "    ID                                    Display oAuth2PermissionGrants object`n" +
+        "    -d ID                                 Delete oAuth2PermissionGrants ID`n" +
+        "    ID `"space-separated claims list`"      Update oAuth2PermissionGrants ID with provided claims list`n" +
         "`n" +
-        "        -z                                    Dump variables in running program`n" +
-        "        -cr                                   Dump values in credentials file`n" +
-        "        -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login`n" +
-        "        -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login`n" +
-        "        -tx                                   Delete MSAL local session cache")
+        "    -z                                    Dump variables in running program`n" +
+        "    -cr                                   Dump values in credentials file`n" +
+        "    -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login`n" +
+        "    -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login`n" +
+        "    -tx                                   Delete MSAL local session cache")
 }
 
 function setup_confdir () {
