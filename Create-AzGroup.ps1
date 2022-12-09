@@ -7,7 +7,7 @@ param ( $name, $description, $owner, [switch]$assignable )
 
 # Global variables
 $global:prgname         = "Create-AzGroup"
-$global:prgver          = "0.9.1"
+$global:prgver          = "9"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
