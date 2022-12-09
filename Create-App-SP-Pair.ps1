@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "13"
+$global:prgver          = "14"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -204,10 +204,12 @@ function setup_api_tokens() {
     setup_credentials  # Sets up tenant ID, client ID, authentication method, etc
     $global:authority_url = "https://login.microsoftonline.com/" + $global:tenant_id
 
-    # This utility calls 2 different resources, the Azure Resource Management (ARM) and MS Graph APIs, and each needs
-    # its own separate token. The Microsoft identity platform does not allow you to get a token for several resources at once.
+    # This functions allows this utility to call multiple APIs, such as the Azure Resource Management (ARM)
+    # and MS Graph, but each one needs its own separate token. The Microsoft identity platform does not allow
+    # using ONE token for several APIS resources at once.
     # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
 
+    # ==== Set up MS Graph API token 
     $global:mg_scope = @($global:mg_url + "/.default")  # The scope is a list of strings
     # Appending '/.default' allows using all static and consented permissions of the identity in use
     # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
@@ -215,7 +217,7 @@ function setup_api_tokens() {
     $global:mg_headers = @{"Authorization" = "Bearer " + $global:mg_token}
     $global:mg_headers.Add("Content-Type", "application/json")
 
-    # You would do other API tokens setups here ...
+    # You can set up other API tokens here ...
 }
 
 function get_token($scopes) {
@@ -291,8 +293,10 @@ function api_call() {
             Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
         }
         switch ( $method.ToUpper() ) {
-            "GET"   { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
-            "POST"  { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
+            "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
+            "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
+            "DELETE"    { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'DELETE' ; break }
+            "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
         }
         if ($verbose) {
             Write-Host "STATUS_CODE: " $r.StatusCode "`nRESPONSE`n"
@@ -371,7 +375,6 @@ function create_pair($displayName) {
     if ( sp_exists $displayName ) {
         die "Error. A Service Principal named `"$displayName`" already exists."
     }
-    Write-Host "Now creating a same-name registered app + SP combo and a secret for that SP ..."
     $new_app = create_app $displayName
     $secret = create_app_secret $new_app.id
     $new_sp = create_sp -appId $new_app.AppId
