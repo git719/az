@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AppSpPair"
-$global:prgver          = "11"
+$global:prgver          = "12"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -337,7 +337,7 @@ function create_app_secret($appObjectId) {
             endDateTime = (Get-Date).AddMonths(12)  # Default to 1 year Expiry
         }
     }
-    $r = api_call "POST" ($mg_url + "/v1.0/application/s" + $appObjectId + "addPassword") -data $payload
+    $r = api_call "POST" ($mg_url + "/v1.0/applications/" + $appObjectId + "/addPassword") -data $payload
     if ( ($null -eq $r) -or ($null -eq $r.secretText ) ) {
         die "Error. Creating secret for application with Object Id '$appObjectId'."
     }
