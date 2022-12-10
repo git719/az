@@ -102,3 +102,6 @@ The `Create-AppSpPair.ps1` script can be used to quickly create an ad hoc App re
 
 ### Create-AzGroup.ps1
 The `Create-AzGroup.ps1` script can be used to quickly create an Azure AD group from the CLI. It is still using the old PS modules, but this will be updated soon.
+
+### Decode-MgToken.ps1
+Decodes a JWT token string.
