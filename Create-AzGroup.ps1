@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AzGroup"
-$global:prgver          = "13"
+$global:prgver          = "14"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -354,10 +354,11 @@ function create_group() {
         $isAssignableToRole = $true
     }
     $payload = @{
-        "displayName"        = $displayName   # These first 4 are required, others are optional
+        "displayName"        = $displayName
         "mailEnable"         = $false
         "mailNickname"       = "NotSet"
         "securityEnable"     = $true
+        # Above 4 are REQUIRED, others are optional
         "description"        = $description
         "isAssignableToRole" = $isAssignableToRole
     } | ConvertTo-Json
