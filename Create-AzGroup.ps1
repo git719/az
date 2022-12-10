@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AzGroup"
-$global:prgver          = "10"
+$global:prgver          = "11"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -22,8 +22,12 @@ function die($msg) {
     Write-Host -ForegroundColor Yellow $msg ; Exit
 }
 
+function print($msg) {
+    Write-Host ($msg)
+}
+
 function print_usage() {
-    die ("$prgname Azure AD group creation utility v$prgver`n" +
+    die("$prgname Azure AD group creation utility v$prgver`n" +
         "    Feed below 4 arguments to create a group. The first argument, GroupDisplayname,`n" +
         "    is the only one that is mandatory:`n`n" +
         "    GroupDisplayname [`"Description`"] [`"user-owner@domain.com`"] [assignable]`n" +
@@ -35,19 +39,24 @@ function print_usage() {
         "    -tx                               Delete MSAL local session cache")
 }
 
-function setup_confdir () {
+function setup_confdir() {
     # Create the utility's config directory
-    if ( $null -eq $env:USERPROFILE ) {
-        die "Missing USERPROFILE environment variable"
+    $homeDir = $null
+    if ($IsWindows -or $ENV:OS) {
+        $homeDir = $env:USERPROFILE                       # PowerShell in a Windows system
     } else {
-        $global:confdir = Join-Path -Path $env:USERPROFILE -ChildPath ("." + $prgname)
-        if (-not (file_exist $global:confdir)) {
-            try {
-                New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
-            }
-            catch {
-                die "Unable to create directory '$global:confdir'. Error was: $_"
-            }
+        $homeDir = (Get-ChildItem -Path Env:HOME).value   # PowerShell in a non-Windows system
+    }
+    if ($null -eq $homeDir) {
+        die "Fatal. Missing USERPROFILE or HOME environment variable."
+    }
+    $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
+    if (-not (file_exist $global:confdir)) {
+        try {
+            New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
+        }
+        catch {
+            die "Unable to create directory '$global:confdir'. Error was: $_"
         }
     }
 }
@@ -86,7 +95,7 @@ function save_file_json($jsonObject, $filePath) {
 }
 
 function print_json($jsonObject) {
-    Write-Host ($jsonObject | ConvertTo-Json)
+    print($jsonObject | ConvertTo-Json)
 }
 
 function valid_uuid($id) {
@@ -96,31 +105,31 @@ function valid_uuid($id) {
 # =================== LOGIN FUNCTIONS =======================
 function dump_variables() {
     # Dump essential global variables
-    Write-Host ("{0,-16} {1}" -f "tenant_id:", $global:tenant_id)
+    print("{0,-16} {1}" -f "tenant_id:", $global:tenant_id)
     if ( $global:interactive.ToString().ToLower() -eq "true" ) {
-        Write-Host ("{0,-16} {1}" -f "username:", $global:username)
-        Write-Host ("{0,-16} {1}" -f "interactive:", "true")
+        print("{0,-16} {1}" -f "username:", $global:username)
+        print("{0,-16} {1}" -f "interactive:", "true")
     } else {
-        Write-Host ("{0,-16} {1}" -f "client_id:", $global:client_id)
-        Write-Host ("{0,-16} {1}" -f "client_secret:", $global:client_secret)
+        print("{0,-16} {1}" -f "client_id:", $global:client_id)
+        print("{0,-16} {1}" -f "client_secret:", $global:client_secret)
     }
-    Write-Host ("{0,-16} {1}" -f "authority_url:", $global:authority_url)
+    print("{0,-16} {1}" -f "authority_url:", $global:authority_url)
     if ( Test-Path variable:global:mg_url ) {
-        Write-Host ("{0,-16} {1}" -f "mg_url:", $global:mg_url)
+        print("{0,-16} {1}" -f "mg_url:", $global:mg_url)
     }
     if ( Test-Path variable:global:az_url ) {
-        Write-Host ("{0,-16} {1}" -f "az_url:", $global:az_url)
+        print("{0,-16} {1}" -f "az_url:", $global:az_url)
     }
     if ( Test-Path variable:global:mg_headers ) {
-        Write-Host "mg_headers:"
+        print("mg_headers:")
         $global:mg_headers.GetEnumerator() | ForEach-Object {
-            Write-Host ("  {0,-14} {1}" -f $_.Key, $_.Value)
+            print("  {0,-14} {1}" -f $_.Key, $_.Value)
         }
     }
     if ( Test-Path variable:global:az_headers ) {
-        Write-Host "az_headers:"
+        print("az_headers:")
         $global:az_headers.GetEnumerator() | ForEach-Object {
-            Write-Host ("  {0,-14} {1}" -f $_.Key, $_.Value)
+            print("  {0,-14} {1}" -f $_.Key, $_.Value)
         }
     }
     exit
@@ -134,34 +143,34 @@ function dump_credentials() {
         die ("Error loading $creds_file`n" +
             "Please rerun program using '-cr' or '-cri' option to specify credentials.")
     }
-    Write-Host ("{0,-14} {1}" -f "tenant_id:", $creds["tenant_id"])
+    print("{0,-14} {1}" -f "tenant_id:", $creds["tenant_id"])
     if ( $null -eq $creds["interactive"] ) {
-        Write-Host ("{0,-14} {1}" -f "client_id:", $creds["client_id"])
-        Write-Host ("{0,-14} {1}" -f "client_secret:", $creds["client_secret"])
+        print("{0,-14} {1}" -f "client_id:", $creds["client_id"])
+        print("{0,-14} {1}" -f "client_secret:", $creds["client_secret"])
     } else {
-        Write-Host ("{0,-14} {1}" -f "username:", $creds["username"])
-        Write-Host ("{0,-14} {1}" -f "interactive:", $creds["interactive"])
+        print("{0,-14} {1}" -f "username:", $creds["username"])
+        print("{0,-14} {1}" -f "interactive:", $creds["interactive"])
     }
     exit
 }
 
 function setup_interactive_login($tenant_id, $username) {
-    Write-Host "Clearing token cache."
-    clear_token_cache
     # Set up credentials file for interactive login
+    print("Clearing token cache.")
+    clear_token_cache
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( -not (valid_uuid $tenant_id) ) {
         die "Error. TENANT_ID is an invalid UUID."
     }
     $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "username:", $username, "interactive:", "true"
     Set-Content $creds_file $creds_text
-    Write-Host "$creds_file : Updated credentials"
+    print("$creds_file : Updated credentials")
 }
 
 function setup_automated_login($tenant_id, $client_id, $secret) {
-    Write-Host "Clearing token cache."
-    clear_token_cache
     # Set up credentials file for client_id + secret login
+    print("Clearing token cache.")
+    clear_token_cache
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( -not (valid_uuid $tenant_id) ) {
         die "Error. TENANT_ID is an invalid UUID."
@@ -171,7 +180,7 @@ function setup_automated_login($tenant_id, $client_id, $secret) {
     }
     $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "client_id:", $client_id, "client_secret:", $secret
     Set-Content $creds_file $creds_text
-    Write-Host "$creds_file : Updated credentials"
+    print("$creds_file : Updated credentials")
 }
 
 function setup_credentials() {
@@ -242,7 +251,7 @@ function get_token($scopes) {
                 ClientId = $ps_client_id
             }
             if ( $null -eq $app ) {
-                die "Error getting Public client app."
+                die("Error getting Public client app.")
             }
             # Cache this client app for future sessions
             Enable-MsalTokenCacheOnDisk $app -WarningAction SilentlyContinue
@@ -260,7 +269,7 @@ function get_token($scopes) {
                 ClientSecret = $global:client_secret
             }
             if ( $null -eq $app ) {
-                die "Error getting Confidential client app."
+                die("Error getting Confidential client app.")
             }
             # Cache this client app for future sessions
             Enable-MsalTokenCacheOnDisk $app -WarningAction SilentlyContinue
@@ -270,7 +279,7 @@ function get_token($scopes) {
     # Getting here means we successfully acquired an app, so now let's get a token
     $token = $app | Get-MsalToken -Scope $scopes
     if ( $null -eq $token ) {
-        die "Error getting token."
+        die("Error getting token.")
     } else {
         return $token.AccessToken   # We only care about the 'secret' string part
     }
@@ -293,10 +302,11 @@ function api_call() {
     }
     try {
         if ( $verbose ) {
-            Write-Host $method ": " $resource
-            Write-Host "PARAMS  : " $($params | ConvertTo-Json)
-            Write-Host "HEADERS : " $($headers | ConvertTo-Json)
-            Write-Host "PAYLOAD : " $data
+            print("==== REQUEST ================================`n" +
+                "$method : $resource`n" +
+                "PARAMS : $($params | ConvertTo-Json -Depth 100)`n" +
+                "HEADERS : $($headers | ConvertTo-Json -Depth 100)`n" +
+                "PAYLOAD : $data")
         }
         switch ( $method.ToUpper() ) {
             "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
@@ -305,15 +315,17 @@ function api_call() {
             "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
         }
         if ($verbose) {
-            Write-Host "STATUS_CODE: " $r.StatusCode "`nRESPONSE`n"
-            print_json ($r | ConvertFrom-Json)
+            print("==== RESPONSE ================================`n" +
+                "STATUS_CODE: $($r.StatusCode)`n" +
+                "RESPONSE $($r | ConvertFrom-Json -Depth 100)")
         }
         return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $verbose -or !$silent) {
-            Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
-            Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
+            print("==== EXCEPTION ================================`n" +
+                "MESSAGE: $($_.Exception.Message)`n" +
+                "RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 100)")
         }
     }
 }
@@ -330,9 +342,9 @@ function group_exists($displayName) {
 }
 
 function create_group() {
-    param ( $name, $description, $owner, [switch]$assignable )
+    param ( $displayName, $description, $owner, [switch]$assignable )
     if ( group_exists $displayName ) {
-        die "Error. A group named `"$displayName`" already exists."
+        die("Error. A group named `"$displayName`" already exists.")
     }
     if ( $null -eq $description ) {
         $description = $displayName
@@ -347,19 +359,23 @@ function create_group() {
         "mailNickname"       = "NotSet"
         "securityEnable"     = $true
         "description"        = $description
-        "isAssignableToRole" = $assignable
+        "isAssignableToRole" = $isAssignableToRole
     } | ConvertTo-Json
+
+    # BUG
+    # Why is below call failing with HTTP 400 Bad Request?
+
     $r = api_call "POST" ($mg_url + "/v1.0/groups") -data $payload
     if ( ($null -ne $r) -or ($null -eq $r.id) ){
-        die "Error. Creating group."
+        die("Error. Creating group.")
     }
 
     # Add owner option here
 
-    Write-Host "Group Name   = " $r.displayName
-    Write-Host "Description  = " $r.description
-    Write-Host "Owner        = " $r.owner
-    Write-Host "Assignable   = " $r.isAssignableToRole
+    print("Group Name   = " + $r.displayName)
+    print("Description  = " + $r.description)
+    print("Owner        = " + $r.owner)
+    print("Assignable   = " + $r.isAssignableToRole)
     exit
 }
 
@@ -370,8 +386,7 @@ if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
 
 setup_confdir
 
-if ( $args.Count -eq 1 ) {
-    # Process 1-argument requests
+if ( $args.Count -eq 1 ) {  # Process 1-argument requests
     $arg1 = $args[0]
     # These first 1-arg requests don't need for API tokens to be setup
     if ( $arg1 -eq "-cr" ) {
@@ -380,14 +395,13 @@ if ( $args.Count -eq 1 ) {
         clear_token_cache
         exit
     }
-    # Remaining ones will need API tokens set up
-    setup_api_tokens
+    setup_api_tokens  # Remaining ones will need API tokens set up
     if ( $arg1 -eq "-z" ) {
         dump_variables
     } else {
         create_group $arg1                     # Create group with 2 arguments
     }
-} elseif ( $args.Count -eq 2 ) {
+} elseif ( $args.Count -eq 2 ) {  # Process 2-argument requests
     $arg1 = $args[0]
     $arg2 = $args[1]
     setup_api_tokens
