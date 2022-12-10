@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AzGroup"
-$global:prgver          = "11"
+$global:prgver          = "12"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -48,7 +48,7 @@ function setup_confdir() {
         $homeDir = (Get-ChildItem -Path Env:HOME).value   # PowerShell in a non-Windows system
     }
     if ($null -eq $homeDir) {
-        die "Fatal. Missing USERPROFILE or HOME environment variable."
+        die("Fatal. Missing USERPROFILE or HOME environment variable.")
     }
     $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
     if (-not (file_exist $global:confdir)) {
@@ -56,7 +56,7 @@ function setup_confdir() {
             New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
         }
         catch {
-            die "Unable to create directory '$global:confdir'. Error was: $_"
+            die("Unable to create directory '$global:confdir'. Error was: $_")
         }
     }
 }
