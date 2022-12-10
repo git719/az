@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AzGroup"
-$global:prgver          = "12"
+$global:prgver          = "13"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -140,7 +140,7 @@ function dump_credentials() {
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     $creds = load_file_yaml $creds_file
     if ( $null -eq $creds ) {
-        die ("Error loading $creds_file`n" +
+        die("Error loading $creds_file`n" +
             "Please rerun program using '-cr' or '-cri' option to specify credentials.")
     }
     print("{0,-14} {1}" -f "tenant_id:", $creds["tenant_id"])
@@ -160,7 +160,7 @@ function setup_interactive_login($tenant_id, $username) {
     clear_token_cache
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( -not (valid_uuid $tenant_id) ) {
-        die "Error. TENANT_ID is an invalid UUID."
+        die("Error. TENANT_ID is an invalid UUID.")
     }
     $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "username:", $username, "interactive:", "true"
     Set-Content $creds_file $creds_text
@@ -173,10 +173,10 @@ function setup_automated_login($tenant_id, $client_id, $secret) {
     clear_token_cache
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( -not (valid_uuid $tenant_id) ) {
-        die "Error. TENANT_ID is an invalid UUID."
+        die("Error. TENANT_ID is an invalid UUID.")
     }
     if ( -not (valid_uuid $client_id) ) {
-        die "Error. CLIENT_ID is an invalid UUID."
+        die("Error. CLIENT_ID is an invalid UUID.")
     }
     $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "client_id:", $client_id, "client_secret:", $secret
     Set-Content $creds_file $creds_text
@@ -187,22 +187,22 @@ function setup_credentials() {
     # Read credentials file and set up authentication parameters as global variables
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
     if ( (-not (file_exist $creds_file)) -or ((file_size $creds_file) -lt 1) ) {
-        die ("Missing credentials file: '$creds_file'`n" +
+        die("Missing credentials file: '$creds_file'`n" +
             "Please rerun program using '-cr' or '-cri' option to specify credentials.")
     }
     $creds = load_file_yaml $creds_file
     $global:tenant_id = $creds["tenant_id"]
     if ( -not (valid_uuid $global:tenant_id) ) {
-        die "[$creds_file] tenant_id '$global:tenant_id' is not a valid UUID"
+        die("[$creds_file] tenant_id '$global:tenant_id' is not a valid UUID")
     }
     if ( $null -eq $creds["interactive"] ) {
         $global:client_id = $creds["client_id"]
         if ( -not (valid_uuid $global:client_id) ) {
-            die "[$creds_file] client_id '$global:client_id' is not a valid UUID."
+            die("[$creds_file] client_id '$global:client_id' is not a valid UUID.")
         }
         $global:client_secret = $creds["client_secret"]
         if ( $null -eq $global:client_secret ) {
-            die "[$creds_file] client_secret is blank"
+            die("[$creds_file] client_secret is blank")
         }
     } else {
         $global:username = $creds["username"]
