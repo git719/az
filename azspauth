@@ -28,15 +28,13 @@ mg_url          = "https://graph.microsoft.com"
 mg_token        = {} 
 mg_headers      = {}
 
-
+# =================== HOUSEKEEPING FUNCTIONS =======================
 def exit(code):
     sys.exit(code)  # Syntactic sugar :-)
-
 
 def die(msg):
     print(msg)
     exit(1)   # Exit with error code 1 and given message
-
 
 def print_usage():
     die(prgname + " Azure SP API permissions utility v" + prgver + "\n"
@@ -46,28 +44,34 @@ def print_usage():
         "         ID                                    Display oAuth2PermissionGrants object\n"
         "         -d ID                                 Delete oAuth2PermissionGrants ID\n"
         "         ID \"space-separated claims list\"      Update oAuth2PermissionGrants ID with provided claims list\n"
+        "\n"
         "         -z                                    Dump variables in running program\n"
         "         -cr                                   Dump values in credentials file\n"
         "         -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login\n"
         "         -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login\n"
 		"         -tx                                   Delete MSAL local cache file")
 
+def setup_confdir():
+    global confdir # We're updating a global variable
+    if os.environ['HOME']:
+        confdir = os.path.join(os.environ['HOME'], "." + prgname)
+        if not file_exist(confdir):
+            os.makedirs(confdir)
+            os.chmod(confdir, 0o700)
+    else:
+        die("Missing HOME environment variable")
 
 def panic(msg):
     die("Exception caught:\n%s" % (msg))
 
-
 def file_exist(filePath):
     return os.path.exists(filePath)
-
 
 def file_size(filePath):
     return os.path.getsize(filePath)
 
-
 def remove_file(filePath):
     os.remove(filePath)     # Syntactic sugar
-
 
 def load_file_yaml(filePath):
     # Read/load/decode given filePath as some YAML object
@@ -77,7 +81,6 @@ def load_file_yaml(filePath):
     except Exception as e:
         panic(str(e))
 
-
 def load_file_json(filePath):
     # Read/load/decode given filePath as some JSON object
     try:
@@ -86,7 +89,6 @@ def load_file_json(filePath):
     except Exception as e:
         panic(str(e))
         
-
 def save_file_json(jsonObject, filePath):
     # Save given JSON object to given filePath
     try:
@@ -95,10 +97,8 @@ def save_file_json(jsonObject, filePath):
     except Exception as e:
         panic(str(e))
 
-
 def print_json(jsonObject):
     print(json.dumps(jsonObject, indent=2))
-
 
 def valid_uuid(id):
     try:
@@ -107,21 +107,7 @@ def valid_uuid(id):
     except Exception as e:
         return False
 
-
-def create_skeleton():
-    skeleton = "oAuth2PermissionGrant_object.json"
-    if file_exist(skeleton):
-        die("Error. File \"" + skeleton + "\" already exists.")
-    content = {
-        "clientId":    "CLIENT_SP_UUID",
-        "consentType": "AllPrincipals",
-        "resourceId":  "API_SP_UUID",
-        "scope":       "space-separated claims list"
-    }
-    save_file_json(content, skeleton)
-    exit(0)
-
-
+# =================== LOGIN FUNCTIONS =======================
 def dump_variables():
     # Dump essential global variables
     print("%-16s %s" % ("tenant_id:", tenant_id))
@@ -146,7 +132,6 @@ def dump_variables():
             print("  %-14s %s" % (k + ":", v))
     exit(0)
 
-
 def dump_credentials():
     # Dump credentials file
     creds_file = os.path.join(confdir, "credentials.yaml")
@@ -159,7 +144,6 @@ def dump_credentials():
         print("%-14s %s" % ("client_id:", creds["client_id"]))
         print("%-14s %s" % ("client_secret:", creds["client_secret"]))
     exit(0)
-
 
 def setup_interactive_login(tenant_id, username):
     print("Clearing token cache.")
@@ -174,7 +158,6 @@ def setup_interactive_login(tenant_id, username):
         f.write(creds_text)
     os.chmod(creds_file, 0o600)
     print("%s : Updated credentials" % (creds_file))
-
 
 def setup_automated_login(tenant_id, client_id, secret):
     print("Clearing token cache.")
@@ -191,7 +174,6 @@ def setup_automated_login(tenant_id, client_id, secret):
         f.write(creds_text)
     os.chmod(creds_file, 0o600)
     print("%s : Updated credentials" % (creds_file))
-
 
 def setup_credentials():
     # Read credentials file and set up authentication parameters as global variables
@@ -216,16 +198,16 @@ def setup_credentials():
         if client_secret == "":
             die("[%s] client_secret is blank" % (creds_file))
 
-
 def setup_api_tokens():
     # Initialize necessary global variables, acquire all API tokens, and set them up for use
     setup_credentials()  # Sets up tenant ID, client ID, authentication method, etc
     global authority_url, mg_token, mg_headers  # This function will update these Global Variables
     authority_url = "https://login.microsoftonline.com/" + tenant_id
 
-	# This utility calls 2 different resources, the Azure Resource Management (ARM) and MS Graph APIs, and each needs
-	# its own separate token. The Microsoft identity platform does not allow you to get a token for several resources at once.
-	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
+    # This functions allows this utility to call multiple APIs, such as the Azure Resource Management (ARM)
+    # and MS Graph, but each one needs its own separate token. The Microsoft identity platform does not allow
+    # using ONE token for several APIS resources at once.
+    # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
 
     mg_scope = [mg_url + "/.default"]  # The scope is a list of strings
 	# Appending '/.default' allows using all static and consented permissions of the identity in use
@@ -233,8 +215,7 @@ def setup_api_tokens():
     mg_token = get_token(mg_scope)     # Note, these are 2 global variable we are updating!
     mg_headers = {'Authorization': 'Bearer ' + mg_token, 'Content-Type': 'application/json'}
 
-	# You would get other API tokens here ...
-
+	# You can set up other API tokens here ...
 
 def get_token(scopes):
     # Set up cache, as per https://msal-python.readthedocs.io/en/latest/#msal.SerializableTokenCache
@@ -302,143 +283,116 @@ def get_token(scopes):
             panic(str(e))
     return token["access_token"]  # We only care about the actual token string
 
+def clear_token_cache():
+    remove_file(os.path.join(confdir, "accessTokens.json"))
 
-def api_get(resource, headers=None, params=None, verbose=False):
+# =================== API FUNCTIONS =======================
+def api_call(method, resource, headers=None, params=None, verbose=False, data=None):
     if headers == None:
-        headers = mg_headers
+        headers = {}
+    headers.update(mg_headers)  # Append global headers
     try:
         if verbose:
-            print("API CALL: %s\nPARAMS  : %s\nHEADERS : %s" % (resource, params, headers))
-        r = requests.get(resource, headers=headers, params=params).json()
+            print("==== REQUEST ================================\n"
+                + method + " : " + resource + "\n"
+                "PARAMS : " + json.dumps(params, indent=2) + "\n"
+                "HEADERS : " + json.dumps(headers, indent=2) + "\n"
+                "PAYLOAD : " + json.dumps(data, indent=2))
+        m = method.upper()
+        if m == "GET":
+            r = requests.get(resource, headers=headers, params=params)
+        elif m == "POST":
+            r = requests.post(resource, headers=headers, params=params, json=data)
+        elif m == "DELETE":
+            r = requests.delete(resource, headers=headers, params=params, json=data)
+        elif m == "PATCH":
+            r = requests.patch(resource, headers=headers, params=params, json=data)
         if verbose:
-            print("RESPONSE: %s\n" % (r))
-        if isinstance(r, int):  # Handle $count filter integer returns
-            return r
+            print("==== RESPONSE ================================\n"
+                "STATUS_CODE: " + str(r.status_code) + "\n"
+                "RESPONSE: " + r.text)
         return r
     except Exception as e:
         panic(str(e))
 
-
-def api_delete(resource, headers=None, params=None, verbose=False, data=None):
-    if headers == None:
-        headers = mg_headers
-    try:
-        if verbose:
-            print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
-        r = requests.delete(resource, headers=headers, params=params, json=data)
-        if verbose:
-            print("RESPONSE: %s\n" % (r))
-        return r
-    except Exception as e:
-        panic(str(e))
-
-
-def api_patch(resource, headers=None, params=None, verbose=False, data=None):
-    if headers == None:
-        headers = mg_headers
-    try:
-        if verbose:
-            print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
-        r = requests.patch(resource, headers=headers, params=params, json=data)
-        if verbose:
-            print("RESPONSE: %s\n" % (r))
-        return r
-    except Exception as e:
-        panic(str(e))
-
-
-def api_post(resource, headers=None, params=None, verbose=False, data=None):
-    if headers == None:
-        headers = mg_headers
-    try:
-        if verbose:
-            print("API CALL DETAILS\nURL     : %s\nPARAMS  : %s\nHEADERS : %s\nDATA\n%s" % (resource, params, headers, data))
-        r = requests.post(resource, headers=headers, params=params, json=data)
-        if verbose:
-            print("RESPONSE: %s\n" % (r))
-        return r
-    except Exception as e:
-        panic(str(e))
-
+# =================== PROGRAM FUNCTIONS =======================
+def create_skeleton():
+    skeleton = "oAuth2PermissionGrant_object.json"
+    if file_exist(skeleton):
+        die("Error. File \"" + skeleton + "\" already exists.")
+    content = {
+        "clientId":    "CLIENT_SP_UUID",
+        "consentType": "AllPrincipals",
+        "resourceId":  "API_SP_UUID",
+        "scope":       "space-separated claims list"
+    }
+    save_file_json(content, skeleton)
+    exit(0)
 
 def show_sp_perms(id):
     # Show SP MS Graph API permissions
-    r = api_get(mg_url + "/v1.0/servicePrincipals/" + id + "/oauth2PermissionGrants")
+    r = api_call("GET", mg_url + "/v1.0/servicePrincipals/" + id + "/oauth2PermissionGrants")
+    r = r.json()
     if "value" not in r or len(r["value"]) < 1:
         die("Service Principal \"" + id + "\" has no API permissions.")
     
     for api in r["value"]:
         api_name = "Unknown"
-        r = api_get(mg_url + "/v1.0/servicePrincipals/" + api["resourceId"])
+        r = api_call("GET", mg_url + "/v1.0/servicePrincipals/" + api["resourceId"])
+        r = r.json()
         if "appDisplayName" in r:
             api_name = r["appDisplayName"]
         claims = api["scope"].strip().split()
         for i in claims:
             print("%-50s %-50s %s" % (api["id"], api_name, i))
 
-
 def valid_oauth_id(id):
     # Is this a valid oAuth2PermissionGrant ID?
-    r = api_get(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
+    r = api_call("GET", mg_url + "/v1.0/oauth2PermissionGrants/" + id)
     if "error" in r:
         return False
     else:
         return True
 
-
 def show_perms(id):
     # Show oAuth2PermissionGrant permissions
-    r = api_get(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
+    r = api_call("GET", mg_url + "/v1.0/oauth2PermissionGrants/" + id)
     if "error" in r:
         die(r["error"]["message"])
-    print_json(r)
-
+    print_json(r.json())
 
 def update_perms(id, claims):
     # Make sure oAuth2Perms exists
-    r = api_get(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
+    r = api_call("GET", mg_url + "/v1.0/oauth2PermissionGrants/" + id)
     if "error" in r:
         die(r["error"]["message"])
 
     # Update oAuth2Perms
     payload = { "scope": claims }
-    r = api_patch(mg_url + "/v1.0/oauth2PermissionGrants/" + id, data=payload)
+    r = api_call("PATCH", mg_url + "/v1.0/oauth2PermissionGrants/" + id, data=payload)
     if r.status_code != 204:
         print_json(r.json())
-
 
 def delete_perms(id):
     # Delete oAuth2Perms
-    r = api_delete(mg_url + "/v1.0/oauth2PermissionGrants/" + id)
+    r = api_call("DELETE", mg_url + "/v1.0/oauth2PermissionGrants/" + id)
     if r.status_code != 204:
         print_json(r.json())
-
 
 def create_perms(filePath):
     # Create oAuth2Perms
     payload = load_file_json(filePath)
-    r = api_post(mg_url + "/v1.0/oauth2PermissionGrants", data=payload)
+    r = api_call("POST", mg_url + "/v1.0/oauth2PermissionGrants", data=payload)
     if r.status_code != 200:
         print_json(r.json())
 
-
-def clear_token_cache():
-    remove_file(os.path.join(confdir, "accessTokens.json"))
-
-
+# =================== MAIN ===========================
 def main(args = None):
     number_of_args = len(sys.argv[1:])  # Not including the program itself
     if number_of_args not in [1, 2, 3, 4]:
         print_usage()  # Don't accept less than 1 or more than 4 arguments
     
-    global confdir # We're updating a global variable
-    if os.environ['HOME']:
-        confdir = os.path.join(os.environ['HOME'], "." + prgname)
-        if not file_exist(confdir):
-            os.makedirs(confdir)
-            os.chmod(confdir, 0o700)
-    else:
-        die("Missing HOME environment variable")
+    setup_confdir()
 
     if number_of_args == 1:  # Process 1-argument requests
         arg1 = sys.argv[1]
@@ -450,8 +404,7 @@ def main(args = None):
             exit(0)
         elif arg1 == "-k":
             create_skeleton()
-        # The rest do need API Tokens set up
-        setup_api_tokens()
+        setup_api_tokens()  # The rest do need API Tokens set up
         if valid_uuid(arg1):
             show_sp_perms(arg1)
         elif arg1 == "-z":
@@ -491,7 +444,6 @@ def main(args = None):
             print_usage()
     else:
         print_usage()
-
 
 if __name__ == '__main__':
     main()
