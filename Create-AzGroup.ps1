@@ -3,11 +3,9 @@
 #Requires -Modules powershell-yaml
 #Requires -Modules MSAL.PS
 
-param ( $name, $description, $owner, [switch]$assignable )
-
 # Global variables
 $global:prgname         = "Create-AzGroup"
-$global:prgver          = "9"
+$global:prgver          = "10"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -295,7 +293,10 @@ function api_call() {
     }
     try {
         if ( $verbose ) {
-            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
+            Write-Host $method ": " $resource
+            Write-Host "PARAMS  : " $($params | ConvertTo-Json)
+            Write-Host "HEADERS : " $($headers | ConvertTo-Json)
+            Write-Host "PAYLOAD : " $data
         }
         switch ( $method.ToUpper() ) {
             "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
@@ -311,7 +312,6 @@ function api_call() {
     }
     catch {
         if ( $verbose -or !$silent) {
-            Write-Host "API CALL: $resource`nPARAMS  : $($params | ConvertTo-Json)`nHEADERS : $($headers | ConvertTo-Json)"
             Write-Host "EXCEPTION_MESSAGE: " $_.Exception.Message
             Write-Host "EXCEPTION_RESPONSE: " ($_.Exception.Response | ConvertTo-Json)
         }
@@ -329,29 +329,37 @@ function group_exists($displayName) {
     return $false
 }
 
-function create_group($name, $description, $owner, $assignable) {
-    # Create AZ Group
+function create_group() {
+    param ( $name, $description, $owner, [switch]$assignable )
     if ( group_exists $displayName ) {
         die "Error. A group named `"$displayName`" already exists."
     }
-    Write-Host "Evidently group does NOT yets exists."
-    exit
-
-    $id = (Get-MgGroup -ConsistencyLevel eventual -Search "DisplayName:$name").Id
-    if ($null -ne $id) {
-        die "Group '$name' ($id) already exists. Aborting."
+    if ( $null -eq $description ) {
+        $description = $displayName
     }
-    $properties = @{
-        "displayName"        = $name;
-        "description"        = $description;
-        "securityEnable"     = $true;
+    $isAssignableToRole = $false
+    if ( $assignable ) {
+        $isAssignableToRole = $true
+    }
+    $payload = @{
+        "displayName"        = $displayName   # These first 4 are required, others are optional
+        "mailEnable"         = $false
+        "mailNickname"       = "NotSet"
+        "securityEnable"     = $true
+        "description"        = $description
         "isAssignableToRole" = $assignable
+    } | ConvertTo-Json
+    $r = api_call "POST" ($mg_url + "/v1.0/groups") -data $payload
+    if ( ($null -ne $r) -or ($null -eq $r.id) ){
+        die "Error. Creating group."
     }
-    New-MgGroup -AdditionalProperties $properties
-    Write-Host "Group Name   = [$name]"
-    Write-Host "Description  = [$description]"
-    Write-Host "Owner        = [$owner]"
-    Write-Host "Assignable   = [$assignable]"
+
+    # Add owner option here
+
+    Write-Host "Group Name   = " $r.displayName
+    Write-Host "Description  = " $r.description
+    Write-Host "Owner        = " $r.owner
+    Write-Host "Assignable   = " $r.isAssignableToRole
     exit
 }
 
@@ -382,6 +390,7 @@ if ( $args.Count -eq 1 ) {
 } elseif ( $args.Count -eq 2 ) {
     $arg1 = $args[0]
     $arg2 = $args[1]
+    setup_api_tokens
     create_group $arg1 $arg2                   # Create group with 2 arguments
 } elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
     $arg1 = $args[0]
@@ -390,6 +399,7 @@ if ( $args.Count -eq 1 ) {
     if ( $arg1 -eq "-cri" ) {
         setup_interactive_login $arg2 $arg3
     } else {
+        setup_api_tokens
         create_group $arg1 $arg2 $arg3         # Create group with 3 arguments
     }
 } elseif ( $args.Count -eq 4 ) {  # Process 4-argument requests
@@ -400,6 +410,7 @@ if ( $args.Count -eq 1 ) {
     if ( $arg1 -eq "-cr" ) {
         setup_automated_login $arg2 $arg3 $arg4
     } else {
+        setup_api_tokens
         create_group $arg1 $arg2 $arg3 $arg4   # Create group with 3 arguments
     }
 } else {
