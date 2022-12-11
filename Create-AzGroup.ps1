@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Create-AzGroup"
-$global:prgver          = "14"
+$global:prgver          = "15"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -336,46 +336,48 @@ function group_exists($displayName) {
     $headers = @{ "ConsistencyLevel" = "eventual" }
     $r = api_call "GET" ($mg_url + "/v1.0/groups?`$search=`"displayName:" + $displayName + "`"&`$count=true") -headers $headers -silent
     if ( $r.'@odata.count' -gt 0 ) {
-        return $true
+        return $True
     }
-    return $false
+    return $False
 }
 
-function create_group() {
-    param ( $displayName, $description, $owner, [switch]$assignable )
+function create_group($displayName, $description, $owner, $assignable) {
     if ( group_exists $displayName ) {
-        die("Error. A group named `"$displayName`" already exists.")
+        die("Error, a group named `"$displayName`" already exists.")
     }
     if ( $null -eq $description ) {
         $description = $displayName
     }
-    $isAssignableToRole = $false
-    if ( $assignable ) {
-        $isAssignableToRole = $true
+    if ( $null -eq $owner ) {
+        $owner = "Empty"
+    }
+    if ( ($null -eq $assignable) -or ($assignable.ToLower() -ne "true") ) {
+        $assignable = $False
     }
     $payload = @{
         "displayName"        = $displayName
-        "mailEnable"         = $false
+        "mailEnabled"        = $False
         "mailNickname"       = "NotSet"
-        "securityEnable"     = $true
+        "securityEnabled"    = $True
         # Above 4 are REQUIRED, others are optional
         "description"        = $description
-        "isAssignableToRole" = $isAssignableToRole
+        "isAssignableToRole" = $assignable
     } | ConvertTo-Json
 
     # BUG
     # Why is below call failing with HTTP 400 Bad Request?
 
     $r = api_call "POST" ($mg_url + "/v1.0/groups") -data $payload
-    if ( ($null -ne $r) -or ($null -eq $r.id) ){
-        die("Error. Creating group.")
+    if ( ($null -eq $r) -or ($null -eq $r.id) ) {
+        die("Error creating group.")
     }
 
     # Add owner option here
 
     print("Group Name   = " + $r.displayName)
+    print("Object Id    = " + $r.id)
     print("Description  = " + $r.description)
-    print("Owner        = " + $r.owner)
+    print("Owner        = " + $owner)
     print("Assignable   = " + $r.isAssignableToRole)
     exit
 }

@@ -94,6 +94,9 @@ azspauth Azure SP API permissions utility v1
          -tx                                   Delete MSAL accessTokens cache file
 ```
 
+### createAzGroup
+Sample python code for creating Azure AD groups from the command line.
+
 ### Managed-SpAuth.ps1
 The `Manage-SpAuth.ps1` script is the PowerShell equivalent of `azspauth`. It leverages the MSAL libraries, using the `MSAL.PS` module. It also use the `powershell-yaml` module to help locally store and managed the credential configuration settings.
 
@@ -101,7 +104,7 @@ The `Manage-SpAuth.ps1` script is the PowerShell equivalent of `azspauth`. It le
 The `Create-AppSpPair.ps1` script can be used to quickly create an ad hoc App registration + Service Principal combination, and a password for the app. This script leverages the same MSAL methodologies used in the `Manage-SpAuth.ps1` script.
 
 ### Create-AzGroup.ps1
-The `Create-AzGroup.ps1` script can be used to quickly create an Azure AD group from the CLI. It is still using the old PS modules, but this will be updated soon.
+The `Create-AzGroup.ps1` script can be used to quickly create an Azure AD group from the CLI. Same as the Python version above called `createAzGroup`.
 
 ### Decode-MgToken.ps1
 Decodes a JWT token string.

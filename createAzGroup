@@ -1,0 +1,410 @@
+#!/usr/bin/env python
+# createAzGroup
+
+import atexit
+import json
+import logging
+import msal
+import os
+import requests
+import sys
+import time
+import uuid
+import yaml
+import time
+from datetime import datetime
+
+# Global variables
+prgname         = "createAzGroup"
+prgver          = "18"
+confdir         = ""
+tenant_id       = ""
+client_id       = ""
+client_secret   = ""
+interactive     = ""
+username        = ""
+authority_url   = ""
+mg_url          = "https://graph.microsoft.com"
+mg_token        = {} 
+mg_headers      = {}
+
+# =================== HOUSEKEEPING FUNCTIONS =======================
+def exit(code):
+    sys.exit(code)  # Syntactic sugar :-)
+
+def die(msg):
+    print(msg)
+    exit(1)   # Exit with error code 1 and given message
+
+def print_usage():
+    die(prgname + " Azure AD group creation utility v" + prgver + "\n"
+        "    Feed below 4 arguments to create a group. GroupDisplayname is mandatory,\n"
+        "    the others are optional:\n\n" +
+        "    GroupDisplayname [\"Description\"] [\"user-owner@domain.com\"] [assignable]\n"
+        "\n"
+        "    -z                                    Dump variables in running program\n"
+        "    -cr                                   Dump values in credentials file\n"
+        "    -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login\n"
+        "    -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login\n"
+		"    -tx                                   Delete MSAL local cache file")
+
+def setup_confdir():
+    global confdir # We're updating a global variable
+    if os.environ['HOME']:
+        confdir = os.path.join(os.environ['HOME'], "." + prgname)
+        if not file_exist(confdir):
+            os.makedirs(confdir)
+            os.chmod(confdir, 0o700)
+    else:
+        die("Missing HOME environment variable")
+
+def panic(msg):
+    die("Exception caught:\n%s" % (msg))
+
+def file_exist(filePath):
+    return os.path.exists(filePath)
+
+def file_size(filePath):
+    return os.path.getsize(filePath)
+
+def remove_file(filePath):
+    os.remove(filePath)     # Syntactic sugar
+
+def load_file_yaml(filePath):
+    # Read/load/decode given filePath as some YAML object
+    try:
+        with open(filePath) as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        panic(str(e))
+
+def load_file_json(filePath):
+    # Read/load/decode given filePath as some JSON object
+    try:
+        with open(filePath) as f:
+            return json.load(f)
+    except Exception as e:
+        panic(str(e))
+        
+def save_file_json(jsonObject, filePath):
+    # Save given JSON object to given filePath
+    try:
+        with open(filePath, 'w') as f:
+            json.dump(jsonObject, f, indent=2)
+    except Exception as e:
+        panic(str(e))
+
+def print_json(jsonObject):
+    print(json.dumps(jsonObject, indent=2))
+
+def valid_uuid(id):
+    try:
+        uuid.UUID(str(id))
+        return True
+    except Exception as e:
+        return False
+
+# =================== LOGIN FUNCTIONS =======================
+def dump_variables():
+    # Dump essential global variables
+    print("%-16s %s" % ("tenant_id:", tenant_id))
+    if interactive:
+        print("%-16s %s" % ("username:", username))
+        print("%-16s %s" % ("interactive:", "true"))
+    else:
+        print("%-16s %s" % ("client_id:", client_id))
+        print("%-16s %s" % ("client_secret:", client_secret))
+    print("%-16s %s" % ("authority_url:", authority_url))
+    if "mg_url" in globals():
+        print("%-16s %s" % ("mg_url:", mg_url))
+    if "az_url" in globals():
+        print("%-16s %s" % ("az_url:", az_url))
+    if "mg_headers" in globals():
+        print("mg_headers:")
+        for k, v in mg_headers.items():
+            print("  %-14s %s" % (k + ":", v))
+    if "az_headers" in globals():
+        print("az_headers:")
+        for k, v in az_headers.items():
+            print("  %-14s %s" % (k + ":", v))
+    exit(0)
+
+def dump_credentials():
+    # Dump credentials file
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    creds = load_file_yaml(creds_file)
+    print("%-14s %s" % ("tenant_id:", creds["tenant_id"]))
+    if "interactive" in creds:
+        print("%-14s %s" % ("username:", creds["username"]))
+        print("%-14s %s" % ("interactive:", creds["interactive"]))
+    else:
+        print("%-14s %s" % ("client_id:", creds["client_id"]))
+        print("%-14s %s" % ("client_secret:", creds["client_secret"]))
+    exit(0)
+
+def setup_interactive_login(tenant_id, username):
+    print("Clearing token cache.")
+    clear_token_cache()
+    # Set up credentials file for interactive login
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    if not valid_uuid(tenant_id):
+        die("Error. TENANT_ID is an invalid UUID.")
+
+    with open(creds_file, "w") as f:
+        creds_text = "%-14s %s\n%-14s %s\n%-14s %s\n" % ("tenant_id:", tenant_id, "username:", username, "interactive:", "true")
+        f.write(creds_text)
+    os.chmod(creds_file, 0o600)
+    print("%s : Updated credentials" % (creds_file))
+
+def setup_automated_login(tenant_id, client_id, secret):
+    print("Clearing token cache.")
+    clear_token_cache()
+    # Set up credentials file for client_id + secret login
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    if not valid_uuid(tenant_id):
+        die("Error. TENANT_ID is an invalid UUID.")
+    if not valid_uuid(client_id):
+        die("Error. CLIENT_ID is an invalid UUID.")
+
+    with open(creds_file, "w") as f:
+        creds_text = "%-14s %s\n%-14s %s\n%-14s %s\n" % ("tenant_id:", tenant_id, "client_id:", client_id, "client_secret:", secret)
+        f.write(creds_text)
+    os.chmod(creds_file, 0o600)
+    print("%s : Updated credentials" % (creds_file))
+
+def setup_credentials():
+    # Read credentials file and set up authentication parameters as global variables
+    global tenant_id, client_id, client_secret, interactive, username  # This function will update these Global Variables
+    creds_file = os.path.join(confdir, "credentials.yaml")
+    if not file_exist(creds_file) or file_size(creds_file) < 1:
+        die("Missing credentials file: '%s'" % (creds_file) + "\n"
+            "Please rerun program using '-cr' or '-cri' option to specify credentials.")
+
+    creds = load_file_yaml(creds_file)
+    tenant_id = creds["tenant_id"]
+    if not valid_uuid(tenant_id):
+        die("[%s] tenant_id '%s' is not a valid UUID" % (creds_file, tenant_id))
+    if "interactive" in creds:
+        username = creds["username"]
+        interactive = creds["interactive"]
+    else:
+        client_id = creds["client_id"]
+        if not valid_uuid(client_id):
+            die("[%s] client_id '%s' is not a valid UUID." % (creds_file, client_id))
+        client_secret = creds["client_secret"]
+        if client_secret == "":
+            die("[%s] client_secret is blank" % (creds_file))
+
+def setup_api_tokens():
+    # Initialize necessary global variables, acquire all API tokens, and set them up for use
+    setup_credentials()  # Sets up tenant ID, client ID, authentication method, etc
+    global authority_url, mg_token, mg_headers  # This function will update these Global Variables
+    authority_url = "https://login.microsoftonline.com/" + tenant_id
+
+    # This functions allows this utility to call multiple APIs, such as the Azure Resource Management (ARM)
+    # and MS Graph, but each one needs its own separate token. The Microsoft identity platform does not allow
+    # using ONE token for several APIS resources at once.
+    # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-net-user-gets-consent-for-multiple-resources
+
+    mg_scope = [mg_url + "/.default"]  # The scope is a list of strings
+	# Appending '/.default' allows using all static and consented permissions of the identity in use
+	# See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
+    mg_token = get_token(mg_scope)     # Note, these are 2 global variable we are updating!
+    mg_headers = {'Authorization': 'Bearer ' + mg_token, 'Content-Type': 'application/json'}
+
+	# You can set up other API tokens here ...
+
+def get_token(scopes):
+    # Set up cache, as per https://msal-python.readthedocs.io/en/latest/#msal.SerializableTokenCache
+    cache = msal.SerializableTokenCache()
+    cache_file = os.path.join(confdir, "accessTokens.json")
+    if file_exist(cache_file):
+        cache.deserialize(open(cache_file, 'r').read())
+    
+    atexit.register(lambda:
+        open(cache_file, 'w').write(cache.serialize())
+        # Hint: The following option line persists only when state changed
+        if cache.has_state_changed else None
+        and os.chmod(cache_file, 0o600)
+    )
+
+    # Acquire token
+    app = None
+    if interactive:
+        # Interactive login with PublicClientApplication
+        # See https://msal-python.readthedocs.io/en/latest/index.html#publicclientapplication
+        try:
+            # We'll use the Azure PowerShell client_id for this
+            ps_client_id = "1950a258-227b-4e31-a9cf-717495945fc2"  # Local variable
+            # See https://stackoverflow.com/questions/30454771/how-does-azure-powershell-work-with-username-password-based-auth
+            app = msal.PublicClientApplication(client_id=ps_client_id,client_credential=None,authority=authority_url,token_cache=cache)
+        except Exception as e:
+            panic(str(e))        
+        try:
+            target_account = None
+            for account in app.get_accounts(username=None):
+                if account["username"].lower() == username.lower():
+                    target_account = account
+                    break
+            token = app.acquire_token_silent(scopes, account=target_account)  # Try getting cached token first
+            if not token:  # Else, just get a new token
+                try:
+                    # acquire_token_interactive: Acquires a security token from the authority using the default web browser to select the account.
+                    # See https://msal-python.readthedocs.io/en/latest/index.html#msal.PublicClientApplication.acquire_token_interactive
+                    token = app.acquire_token_interactive(scopes=scopes)
+                    if "access_token" not in token:
+                        panic(str(e))
+                except:
+                    pass            
+        except Exception as e:
+            panic(str(e))
+    else:
+        # Client_id + secret login automated login with ConfidentialClientApplication
+        # See https://msal-python.readthedocs.io/en/latest/index.html#confidentialclientapplication        
+        try:
+            app = msal.ConfidentialClientApplication(client_id,client_credential=client_secret,authority=authority_url,token_cache=cache)
+        except Exception as e:
+            panic(str(e))           
+        try:
+            token = app.acquire_token_silent(scopes, account=None)  # Try getting cached token first
+            if not token:  # Else, just get a new token
+                try:
+                    # acquire_token_for_client: Acquires token for the current confidential client, not for an end user.
+                    # See https://msal-python.readthedocs.io/en/latest/index.html#msal.ConfidentialClientApplication.acquire_token_for_client
+                    token = app.acquire_token_for_client(scopes=scopes)
+                    if "access_token" not in token:
+                        panic(str(e))
+                except:
+                    pass
+        except Exception as e:
+            panic(str(e))
+    return token["access_token"]  # We only care about the actual token string
+
+def clear_token_cache():
+    cache_file = os.path.join(confdir, "accessTokens.json")
+    if file_exist(cache_file):
+        remove_file(cache_file)
+
+# =================== API FUNCTIONS =======================
+def api_call(method, resource, headers=None, params=None, verbose=False, data=None):
+    if headers == None:
+        headers = {}
+    headers.update(mg_headers)  # Append global headers
+    try:
+        if verbose:
+            print("==== REQUEST ================================\n"
+                + method + " : " + resource + "\n"
+                "PARAMS : " + json.dumps(params, indent=2) + "\n"
+                "HEADERS : " + json.dumps(headers, indent=2) + "\n"
+                "PAYLOAD : " + json.dumps(data, indent=2))
+        m = method.upper()
+        if m == "GET":
+            r = requests.get(resource, headers=headers, params=params)
+        elif m == "POST":
+            r = requests.post(resource, headers=headers, params=params, json=data)
+        elif m == "DELETE":
+            r = requests.delete(resource, headers=headers, params=params, json=data)
+        elif m == "PATCH":
+            r = requests.patch(resource, headers=headers, params=params, json=data)
+        if verbose:
+            print("==== RESPONSE ================================\n"
+                "STATUS_CODE: " + str(r.status_code) + "\n"
+                "RESPONSE: " + r.text)
+        return r
+    except Exception as e:
+        panic(str(e))
+
+# =================== PROGRAM FUNCTIONS =======================
+def group_exists(displayName):
+    # Check if any group with this name exists
+    headers = { "ConsistencyLevel" : "eventual" }
+    r = api_call("GET", mg_url + "/v1.0/groups?$search=\"displayName:" + displayName + "\"&$count=true", headers=headers)
+    r = r.json()
+    if "@odata.count" in r and r["@odata.count"] > 0:
+        return True
+    return False
+
+def create_group(displayName, description=None, owner=None, assignable=False):
+    if group_exists(displayName):
+        die("Error. A group named \"" + displayName + "\" already exists.")
+    if description == None:
+        description = displayName
+    if owner == None:
+        owner = "Empty"
+    payload = {
+        "displayName"        : displayName,
+        "mailEnabled"        : False,
+        "mailNickname"       : "NotSet",
+        "securityEnabled"    : True,
+        # Above 4 are REQUIRED, others are optional
+        "description"        : description,
+        "isAssignableToRole" : assignable
+    }
+
+    # BUG
+    # Why is below call failing with HTTP 400 Bad Request?
+
+    r = api_call("POST", mg_url + "/v1.0/groups", data=payload) #, verbose=True)
+    r = r.json()
+    if "error" in r:
+        die(r["error"]["message"])
+
+    # Add owner here
+
+    print("Group Name   = " + r["displayName"])
+    print("Object Id    = " + r["id"])
+    print("Description  = " + str(r["description"]))
+    print("Owner        = " + owner)
+    print("Assignable   = " + str(r["isAssignableToRole"]))
+    exit(0)
+
+# =================== MAIN ===========================
+def main(args = None):
+    number_of_args = len(sys.argv[1:])  # Not including the program itself
+    if number_of_args not in [1, 2, 3, 4]:
+        print_usage()  # Don't accept less than 1 or more than 4 arguments
+    
+    setup_confdir()
+
+    if number_of_args == 1:  # Process 1-argument requests
+        arg1 = sys.argv[1]
+        # These 1-arg request don't need for API tokens to be setup
+        if arg1 == "-cr":
+            dump_credentials()
+        elif arg1 == "-tx":
+            clear_token_cache()
+            exit(0)
+        setup_api_tokens()  # The rest do need API Tokens set up
+        if arg1 == "-z":
+            dump_variables()
+        else:
+            create_group(arg1)
+    elif number_of_args == 2: # Process 2-argument requests
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+        setup_api_tokens()
+        create_group(arg1, arg2)                   # Create group with 2 arguments
+    elif number_of_args == 3: # Process 3-argument requests
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+        arg3 = sys.argv[3]
+        if arg1 == "-cri":
+            setup_interactive_login(arg2, arg3)
+        else:
+            setup_api_tokens()
+            create_group(arg1, arg2, arg3)
+    elif number_of_args == 4: # Process 4-argument requests
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+        arg3 = sys.argv[3]
+        arg4 = sys.argv[4]
+        if arg1 == "-cr":
+            setup_automated_login(arg2, arg3, arg4)
+        else:
+            setup_api_tokens()
+            create_group(arg1, arg2, arg3, arg4)
+    else:
+        print_usage()
+
+if __name__ == '__main__':
+    main()
