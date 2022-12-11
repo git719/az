@@ -68,40 +68,42 @@ azrm Azure RBAC role definition & assignment remover v121
      -v                                Display this usage
 ```
 
-### azappsp
+### createAppSpPair
 This is the Python equivalent of `Create-AppSpPair.ps1`: 
 
 ```
-zure App/SP combo creation utility v21
+Azure App/SP combo creation utility v21
   Usage: azappsp APP_SP_NAME
 ```
 This version is non-interactive and therefore requires the registered app with necessary privileges that is mentioned above.
 
-### azspauth
-Reads and updates a Service Principal's oAuth2PermissionGrants.
+### manageSpAuth
+Reads and updates a Service Principal's oAuth2PermissionGrants from the command line. Another example of how to use MSAL libraries with Python.
 
 ```
-azspauth Azure SP API permissions utility v1
-         SP_OBJECT_UUID                        Display Service Principal API permissions
-         -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file
-         -k                                    Create a skeleton oAuth2PermissionGrant_object.json file
-         ID                                    Display oAuth2PermissionGrants object
-         -d ID                                 Delete oAuth2PermissionGrants ID
-         ID "space-separated claims list"      Update oAuth2PermissionGrants ID with provided claims list
-         -cr                                   Dump values in credentials file
-         -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login
-         -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login
-         -tx                                   Delete MSAL accessTokens cache file
+manageSpAuth Azure SP API permissions utility v19
+    SP_OBJECT_UUID                        Display Service Principal API permissions
+    -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file
+    -k                                    Create a skeleton oAuth2PermissionGrant_object.json file
+    ID                                    Display oAuth2PermissionGrants object
+    -d ID                                 Delete oAuth2PermissionGrants ID
+    ID "space-separated claims list"      Update oAuth2PermissionGrants ID with provided claims list
+
+    -z                                    Dump variables in running program
+    -cr                                   Dump values in credentials file
+    -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login
+    -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login
+    -tx                                   Delete MSAL local cache file
 ```
 
 ### createAzGroup
 Sample python code for creating Azure AD groups from the command line.
 
 ### Managed-SpAuth.ps1
-The `Manage-SpAuth.ps1` script is the PowerShell equivalent of `azspauth`. It leverages the MSAL libraries, using the `MSAL.PS` module. It also use the `powershell-yaml` module to help locally store and managed the credential configuration settings.
+The `Manage-SpAuth.ps1` script is the PowerShell equivalent of `manageSpAuth`. It leverages the MSAL libraries, using the `MSAL.PS` module. It also use the `powershell-yaml` module to help locally store and managed the credential configuration settings.
 
 ### Create-AppSpPair.ps1
-The `Create-AppSpPair.ps1` script can be used to quickly create an ad hoc App registration + Service Principal combination, and a password for the app. This script leverages the same MSAL methodologies used in the `Manage-SpAuth.ps1` script.
+The `Create-AppSpPair.ps1` script can be used to quickly create an ad hoc App registration + Service Principal combination, with a password for the app. This script leverages the same MSAL methodologies used by all the other PowerShell scripts here.
 
 ### Create-AzGroup.ps1
 The `Create-AzGroup.ps1` script can be used to quickly create an Azure AD group from the CLI. Same as the Python version above called `createAzGroup`.

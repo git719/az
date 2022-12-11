@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# list-custom-roles
+# listCustomRoles
 #
 # List all custom roles with dataAction permissions.
 #
