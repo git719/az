@@ -1,6 +1,6 @@
-# Decode-MgToken.ps1
+# Decode-Token.ps1
 
-$global:prgname         = "Decode-MgToken"
+$global:prgname         = "Decode-Token"
 $global:prgver          = "1"
 
 function die($msg) {
