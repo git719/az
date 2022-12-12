@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-SpAuth"
-$global:prgver          = "25"
+$global:prgver          = "26"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -311,6 +311,7 @@ function api_call() {
                 "HEADERS : $($headers | ConvertTo-Json -Depth 100)`n" +
                 "PAYLOAD : $data")
         }
+        $ProgressPreference = "SilentlyContinue"  # Don't show progress in the command prompt UI
         switch ( $method.ToUpper() ) {
             "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
             "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
