@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "1"
+$global:prgver          = "2"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -314,10 +314,10 @@ function api_call() {
                 "PAYLOAD : $data")
         }
         switch ( $method.ToUpper() ) {
-            "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
-            "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
-            "DELETE"    { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'DELETE' ; break }
-            "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
+        "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
+        "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
+        "DELETE"    { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'DELETE' ; break }
+        "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
         }
         if ($verbose) {
             print("==== RESPONSE ================================`n" +
@@ -336,18 +336,95 @@ function api_call() {
 }
 
 # =================== PROGRAM FUNCTIONS =======================
-function create_skeleton() {
-    $skeleton = Join-Path -Path $pwd -ChildPath "oAuth2PermissionGrant_object.json"
+function create_skeleton($fileType) {
+    switch ( $fileType.ToLower() ) {
+    "-kd"   {
+                $name = "role-definition.yaml"
+                $content = @"
+properties:
+  roleName:    My RBAC Role
+  description: Description of what this role does.
+  assignableScopes:
+    # Example scopes of where this role will be DEFINED. Recommendation: Define at highest point only, the Tenant Root Group level.
+    # Current limitation: Custom role with dataAction or noDataAction can ONLY be defined at subscriptions level.
+    - /providers/Microsoft.Management/managementGroups/3f550b9f-8888-7777-ad61-111199992222
+  permissions:
+    actions:
+      - Microsoft.DevCenter/projects/*/read                     # Sample action
+    notActions:
+      - Microsoft.DevCenter/projects/pools/read                 # Sample notAction
+    dataActions:
+      - Microsoft.KeyVault/vaults/secrets/*                     # Sample dataAction
+    notDataActions:
+      - Microsoft.CognitiveServices/accounts/LUIS/apps/delete   # Sample notDataAction
+
+"@
+            ; break
+            }
+    "-kdj"  {
+                $name = "role-definition.json"
+                $content = @"
+{
+  "properties": {
+    "roleName": "My RBAC Role",
+    "description": "Description of what this role does.",
+    "assignableScopes": [
+      "/providers/Microsoft.Management/managementGroups/3f550b9f-8888-7777-ad61-111199992222"
+    ],
+    "permissions": [
+      {
+        "actions": [
+          "Microsoft.DevCenter/projects/*/read"
+        ],
+        "notActions": [
+          "Microsoft.DevCenter/projects/pools/read"
+        ],
+        "dataActions": [
+          "Microsoft.KeyVault/vaults/secrets/*"
+        ],
+        "notDataActions": [
+          "Microsoft.CognitiveServices/accounts/LUIS/apps/delete"
+        ]
+      }
+    ],
+    "type": "CustomRole"
+  }
+}    
+
+"@
+                ; break
+            }
+    "-ka"   {
+                $name = "role-assignment.yaml"
+                $content = @"
+properties:
+    roleDefinitionId: 2489dfa4-3333-4444-9999-b04b7a1e4ea6  # Comment to mention the actual roleName = "My Special Role"
+    principalId:      65c6427a-1111-5555-7777-274d26531314  # Comment to mention the actual Group displayName = "My Special Group"
+    scope:            /providers/Microsoft.Management/managementGroups/3f550b9f-8888-7777-ad61-111199992222
+
+"@
+                ; break
+            }
+    "-kaj"  {
+                $name = "role-assignment.json"
+                $content = @"
+{
+  "properties": {
+    "roleDefinitionId": "2489dfa4-3333-4444-9999-b04b7a1e4ea6",
+    "principalId": "65c6427a-1111-5555-7777-274d26531314",
+    "scope": "/providers/Microsoft.Management/managementGroups/3f550b9f-8888-7777-ad61-111199992222"
+  }
+}
+
+"@
+                ; break
+            }
+    }        
+    $skeleton = Join-Path -Path $pwd -ChildPath $name    
     if ( file_exist $skeleton ) {
-        die("Error. File `"$skeleton`" already exists.")
+        die("Error, file `"$skeleton`" already exists.")
     }
-    $content = @{
-        "clientId"    = "CLIENT_SP_UUID"
-        "consentType" = "AllPrincipals"
-        "resourceId"  = "API_SP_UUID"
-        "scope"       = "space-separated claims list like openid profile"
-    }
-    save_file_json $content $skeleton
+    $content | Out-File $skeleton
     exit
 }
 
@@ -433,8 +510,10 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     } elseif ( $arg1 -eq "-tx" ) {
         clear_token_cache
         exit
-    } elseif ( $arg1 -eq "-k" ) {
-        create_skeleton
+    } elseif ( ($arg1 -eq "-kd") -or ($arg1 -eq "-kdj") -or ($arg1 -eq "-ka") -or ($arg1 -eq "-kaj") ) {
+        create_skeleton $arg1
+    } elseif ( $arg1 -eq "-v" ) {
+        print_usage
     }
     # The rest do need API tokens set up
     setup_api_tokens
