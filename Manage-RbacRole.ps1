@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "4"
+$global:prgver          = "5"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -73,7 +73,7 @@ function SetupConfDirectory() {
         die("Fatal. Missing USERPROFILE or HOME environment variable.")
     }
     $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
-    if (-not (file_exist $global:confdir)) {
+    if (-not (FileExist $global:confdir)) {
         try {
             New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
         }
@@ -83,7 +83,7 @@ function SetupConfDirectory() {
     }
 }
 
-function file_exist($filePath) {
+function FileExist($filePath) {
     return Test-Path -LiteralPath $filePath
 }
 
@@ -97,7 +97,7 @@ function remove_file($filePath) {
 
 function load_file_yaml($filePath) {
     # Read/load/decode given filePath as some YAML object
-    if ( file_exist $filePath ) {
+    if ( FileExist $filePath ) {
         [string[]]$fileContent = Get-Content $filePath
         $content = ''
         foreach ($line in $fileContent) {
@@ -120,7 +120,7 @@ function print_json($jsonObject) {
     print($jsonObject | ConvertTo-Json -Depth 100)
 }
 
-function valid_uuid($id) {
+function ValidUuid($id) {
     return [guid]::TryParse($id, $([ref][guid]::Empty))
 }
 
@@ -186,7 +186,7 @@ function setup_interactive_login($tenant_id, $username) {
     clear_token_cache
     # Set up credentials file for interactive login
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
-    if ( -not (valid_uuid $tenant_id) ) {
+    if ( -not (ValidUuid $tenant_id) ) {
         die("Error. TENANT_ID is an invalid UUID.")
     }
     $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "username:", $username, "interactive:", "true"
@@ -213,7 +213,7 @@ function setup_automated_login($tenant_id, $client_id, $secret) {
 function setup_credentials() {
     # Read credentials file and set up authentication parameters as global variables
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
-    if ( (-not (file_exist $creds_file)) -or ((file_size $creds_file) -lt 1) ) {
+    if ( (-not (FileExist $creds_file)) -or ((file_size $creds_file) -lt 1) ) {
         die("Missing credentials file: '$creds_file'`n",
             "Please rerun program using '-cr' or '-cri' option to specify credentials.")
     }
@@ -538,7 +538,7 @@ properties:
             }
     }        
     $skeleton = Join-Path -Path $pwd -ChildPath $name    
-    if ( file_exist $skeleton ) {
+    if ( FileExist $skeleton ) {
         die("Error, file `"$skeleton`" already exists.")
     }
     $content | Out-File $skeleton
@@ -585,16 +585,33 @@ function update_perms($id, $claims) {
     }
 }
 
-function delete_perms($id) {
-    # Delete oAuth2Perms
-    $r = api_call "DELETE" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
-    #$r = api_call "POST" ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
-    if ( $null -eq $r ) {
-        print_json($r)
+# --------------------------------------------------------------
+function DeleteObject($specifier) {
+    # Delete role definition or assignment based on string specifier
+    if ( ValidUuid $specifier ) {
+        # Delete object with this UUID
+        $x = GetObjectById $specifier
+        if ( $null -eq $x ) {
+            die("There's no object with UUID $specifier.")
+        } elseif ( $x.type -eq "Microsoft.Authorization/roleAssignments" ) {
+            PrintRoleAssignment($x)
+            #Prompt
+            #Delete
+        } elseif ( $x.type -eq "Microsoft.Authorization/roleDefinitions" ) {
+            PrintRoleDefinition($x)
+            #Prompt
+            #Delete
+        } else {
+
+        }
+    } elseif ( FileExist $specifier ) {
+        # Delete object defined in specfile
+    } else {
+        # Delete object by this name, if it exists
     }
+    exit
 }
 
-# --------------------------------------------------------------
 function PrintRoleDefinition($object) {
 	# Print role definition object in YAML-like style format
 	if ( $null -eq $object.name ) {
@@ -739,7 +756,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     }
     # The rest do need API tokens set up
     setup_api_tokens
-    if ( valid_uuid $arg1 ) {
+    if ( ValidUuid $arg1 ) {
         ShowObject $arg1
     } elseif ( $arg1 -eq "-sj" ) {
         $subs = get_subscriptions
@@ -755,8 +772,8 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg2 = $args[1]
     setup_api_tokens
     if ( $arg1 -eq "-d" ) {
-        delete_perms $arg2
-    } elseif ( ( $arg1 -eq "-a" ) -and ( file_exist $arg2 ) ) {
+        DeleteObject $arg2
+    } elseif ( ( $arg1 -eq "-a" ) -and ( FileExist $arg2 ) ) {
         create_perms $arg2
     } elseif ( valid_oauth_id $arg1 ) {
         update_perms $arg1 $arg2
