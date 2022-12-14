@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "3"
+$global:prgver          = "4"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -674,39 +674,31 @@ function PrintRoleAssignment($object) {
     $x = $object.properties           # Let's use a variable that's simpler to read 
     print("properties:")
     
-	$roleUuid = LastElem $x.roleDefinitionId "/"
     # Print role displayName and principal displayName as comments
-    # roleMap := GetIdNameMap("d")
-	# var nameMap map[string]string
-	# pType := StrVal(xProp["principalType"])
-	# switch pType {
-	# case "User":
-	# 	nameMap = GetIdNameMap("u")
-	# case "ServicePrincipal":
-	# 	nameMap = GetIdNameMap("sp")
-	# case "Group":
-	# 	nameMap = GetIdNameMap("g")
-	# }
-	# pId := StrVal(xProp["principalId"])
-	# pName := nameMap[StrVal(xProp["principalId"])]
-	#print("  %-17s %s  # %s displayName = \"%s\"\n", "principalId:", pId, pType, pName)
-    print("  {0,-17} {1}" -f "roleDefinitionId:", $roleUuid)    
-    print("  {0,-17} {1}" -f "principalId:", $x.principalId)
+	$roleUuid = LastElem $x.roleDefinitionId "/"
+    $roleName = GetObjectName "d" $roleUuid
+    print("  {0,-17} {1}  # roleName = {2}" -f "roleDefinitionId:", $roleUuid, $roleName)
+    $pnId = $x.principalId
+    $pnType = $x.principalType
+	switch ( $pnType ) {
+	    "User"              {  $pnName = GetObjectName "u" $pnId ; break }
+	    "ServicePrincipal"  {  $pnName = GetObjectName "sp" $pnId ; break }
+	    "Group"             {  $pnName = GetObjectName "g" $pnId ; break }
+        default             {  $pnType = "???" ; $pnName = "???" ; break }
+    }
+    print("  {0,-17} {1}  # {3} displayName = {3}" -f "principalId:", $pnId, $pnType, $pnName)
 
-    # If scope is subscription, print its displayName as comments
-    # subMap := GetIdNameMap("s")
-	# scope := StrVal(xProp["scope"])
-	# if strings.HasPrefix(scope, "/subscriptions") {
-	# 	split := strings.Split(scope, "/")
-	# 	subName := subMap[split[2]]
-	# 	print("  %-17s %s  # Sub = %s\n", "scope:", scope, subName)
-	# } else {
-	# 	print("  %-17s %s\n", "scope:", scope)
-	# }
-	print("  {0,-17} {1}" -f "scope:", $x.scope)
+    # If scope is a subscription print its name as a comment at end of line
+    if ( $x.scope.StartsWith("/subscriptions") ) {
+        $subId = LastElem $x.scope "/"
+        $subName = GetObjectName "s" $subId
+        print("  {0,-17} {1}  # Sub = {2}" -f "scope:", $x.scope, $subName)
+    } else {
+        print("  {0,-17} {1}" -f "scope:", $x.scope)
+    }
 }
 
-function show_object($id) {
+function ShowObject($id) {
     # Show any RBAC role definitions and assigment with this UUID
     $x = GetObjectById "a" $id
     if ( $null -ne $x ) {
@@ -748,7 +740,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     # The rest do need API tokens set up
     setup_api_tokens
     if ( valid_uuid $arg1 ) {
-        show_object $arg1
+        ShowObject $arg1
     } elseif ( $arg1 -eq "-sj" ) {
         $subs = get_subscriptions
         print_json $subs
