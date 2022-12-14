@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "2"
+$global:prgver          = "3"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -19,22 +19,39 @@ $global:mg_headers      = @{}
 $global:az_url          = "https://management.azure.com"
 $global:az_token        = @{}
 $global:az_headers      = @{}
+$global:oMap            = @{
+	# Hashtable for each ARM and MG object type to help generesize many of the functions
+    "d"  = "roleDefinitions"
+    "a"  = "roleAssignments"
+    "s"  = "subscriptions"
+    "m"  = "managementGroups"
+    "u"  = "users"
+    "g"  = "groups"
+    "sp" = "servicePrincipals"
+    "ap" = "applications"
+}
 
 # =================== HOUSEKEEPING FUNCTIONS =======================
 function die($msg) {
     Write-Host -ForegroundColor Yellow $msg ; exit
 }
 
+function warning($msg) {
+    Write-Host -ForegroundColor Yellow $msg
+}
+
 function print($msg) {
     Write-Host ($msg)
 }
 
-function print_usage() {
+function PrintUsage() {
     die("$prgname Azure RBAC role definition & assignment manager v$prgver`n" +
+        "    UUID                              List definition or assignment given its UUID`n" +
         "    -d UUID|SPECFILE|`"role name`"      Delete definition or assignment based on specifier`n" +
         "    -u SPECFILE                       Create or update definition or assignment based on specfile`n" +
         "    -kd[j]                            Create a skeleton role-definition.yaml specfile (JSON option)`n" +
         "    -ka[j]                            Create a skeleton role-assignment.yaml specfile (JSON option)`n" +
+        "    -sj                               List all subscription objects in JSON format`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
@@ -44,7 +61,7 @@ function print_usage() {
         "    -v                                Display this usage")
 }
 
-function setup_confdir() {
+function SetupConfDirectory() {
     # Create the utility's config directory
     $homeDir = $null
     if ($IsWindows -or $ENV:OS) {
@@ -100,11 +117,16 @@ function save_file_json($jsonObject, $filePath) {
 }
 
 function print_json($jsonObject) {
-    print($jsonObject | ConvertTo-Json)
+    print($jsonObject | ConvertTo-Json -Depth 100)
 }
 
 function valid_uuid($id) {
     return [guid]::TryParse($id, $([ref][guid]::Empty))
+}
+
+function LastElem($s, $splitter) {
+    $Split = $s -split $splitter   # Split the string
+	return $Split[-1]              # Return last element
 }
 
 # =================== LOGIN FUNCTIONS =======================
@@ -216,7 +238,7 @@ function setup_credentials() {
 }
 
 function setup_api_tokens() {
-    # Initialize necessary global variables, acquire all API tokens, and set them up for use
+    # Initialize necessary variables, acquire all API tokens, and set them up to be used GLOBALLY
     setup_credentials  # Sets up tenant ID, client ID, authentication method, etc
     $global:authority_url = "https://login.microsoftonline.com/" + $global:tenant_id
 
@@ -232,6 +254,12 @@ function setup_api_tokens() {
     $global:mg_token = get_token $global:mg_scope     # Note, these are 2 global variable we are updating!
     $global:mg_headers = @{"Authorization" = "Bearer " + $global:mg_token}
     $global:mg_headers.Add("Content-Type", "application/json")
+
+    # ==== Set up ARM AZ API token 
+    $global:az_scope = @($global:az_url + "/.default")
+    $global:az_token = get_token $global:az_scope
+    $global:az_headers = @{"Authorization" = "Bearer " + $global:az_token}
+    $global:az_headers.Add("Content-Type", "application/json")
 
     # You can set up other API tokens here ...
 }
@@ -298,13 +326,23 @@ function clear_token_cache() {
 
 # =================== API FUNCTIONS =======================
 function api_call() {
-    param ( [string]$method, $resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
+    param ( [string]$method, $resource, $headers, $data, [switch]$verbose, [switch]$silent )
     if ( $null -eq $headers ) {
         $headers = @{}
     }
-    $global:mg_headers.GetEnumerator() | ForEach-Object {
-        $headers.Add($_.Key, $_.Value)    # Append global headers
-    }
+    
+    # Merge global and additionally called parameters and headers for both AZ and MG APIs
+	if ( $resource.StartsWith($az_url) ) {
+        $global:az_headers.GetEnumerator() | ForEach-Object {
+            $headers.Add($_.Key, $_.Value)
+        }
+	} elseif ( $resource.StartsWith($mg_url) ) {
+        # MG calls don't seem to use parameters
+        $global:mg_headers.GetEnumerator() | ForEach-Object {
+            $headers.Add($_.Key, $_.Value)    
+        }
+	}
+
     try {
         if ( $verbose ) {
             print("==== REQUEST ================================`n" +
@@ -313,8 +351,9 @@ function api_call() {
                 "HEADERS : $($headers | ConvertTo-Json -Depth 100)`n" +
                 "PAYLOAD : $data")
         }
+        $ProgressPreference = "SilentlyContinue"  # Don't show progress in the command prompt UI
         switch ( $method.ToUpper() ) {
-        "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
+        "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'GET' ; break }
         "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
         "DELETE"    { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'DELETE' ; break }
         "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
@@ -324,7 +363,7 @@ function api_call() {
                 "STATUS_CODE: $($r.StatusCode)`n" +
                 "RESPONSE $($r | ConvertFrom-Json -Depth 100)")
         }
-        return ($r | ConvertFrom-Json)
+        return ($r | ConvertFrom-Json -Depth 100)
     }
     catch {
         if ( $verbose -or !$silent) {
@@ -333,6 +372,84 @@ function api_call() {
                 "RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 100)")
         }
     }
+}
+
+function GetObjectName($t, $id) {
+	# Return display name for given object
+    $x = GetObjectById $t $id
+    if ( $null -eq $x ) {
+        return "null"
+    }
+    switch ( $t ) {
+        "d"     {
+            return $x.properties.roleName
+        }
+        { "s", "u", "g", "sp", "ap" -eq $_ } {
+            return $x.displayName
+        }
+    }
+	return "UnkownType"
+}
+
+function GetObjectById($t, $id) {
+	# Retrieve Azure object by UUID
+	switch ( $t ) {
+        { "a", "d" -eq $_ } {
+            # First, search for this object at Tenant root level
+            $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $tenant_id
+            $url += "/providers/Microsoft.Authorization/" + $oMap[$t] + "/" + $id + "?api-version=2022-04-01"        
+            $r = api_call "GET" ($url) -silent
+            if ( $null -ne $r.id ) {
+                return $r  # Immediately if found
+            }
+            # Else, let's search under each Subscription in tenant
+            foreach ($subId in get_sub_ids) {
+                $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "/" + $id
+                $r = api_call "GET" ($url + "?api-version=2022-04-01") -silent
+                if ( $null -ne $r.id ) {
+                    return $r  # Immediately if found
+                }
+            }
+            break  # Needed after each case
+        }
+        "s" {
+            $r = api_call "GET" ($az_url + "/" + $oMap[$t] + "/" + $id + "?api-version=2020-01-01") -silent
+            return $r
+            break
+        }
+        "m" {
+            $r = api_call "GET" ($az_url + "/providers/Microsoft.Management/managementGroups/" + $id)
+            return $r
+            break
+        }
+        { "u", "g", "sp", "ap" -eq $_ } {
+            $r = api_call "GET" ($mg_url + "/v1.0/" + $oMap[$t]+ "/" + $id)
+            return $r
+            break
+        }
+    }
+	return $null
+}
+
+function get_sub_ids() {
+	# Get all subscription IDs
+	# for _, i := range GetAllObjects("s") {   # FUTURE
+    $subIds = [System.Collections.Generic.List[string]]::new()
+    foreach ($sub in get_subscriptions) {
+        if ( $sub.displayName -eq "Access to Azure Active Directory" ) {
+            continue
+        }
+        $subIds.Add($sub.subscriptionId)
+    }
+	return $subIds
+}
+
+function get_subscriptions() {
+	$r = api_call "GET" ($az_url + "/" + $oMap["s"] + "?api-version=2020-01-01")
+	if ( ($null -ne $r) -and ($null -ne $r.value) ) {
+        return $r.value
+	}
+	return $null
 }
 
 # =================== PROGRAM FUNCTIONS =======================
@@ -457,16 +574,6 @@ function valid_oauth_id($id) {
     return $true
 }
 
-function show_perms($id) {
-    # Show oAuth2PermissionGrant permissions
-    $r = api_call "GET" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
-    if ( $null -eq $r.error ) {
-        print_json($r)
-    } else {
-        die($r)
-    }
-}
-
 function update_perms($id, $claims) {
     if ( valid_oauth_id $id ) {  # Ensure this is legit oAuth2Perms id
         # Update oAuth2Perms
@@ -481,26 +588,149 @@ function update_perms($id, $claims) {
 function delete_perms($id) {
     # Delete oAuth2Perms
     $r = api_call "DELETE" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    #$r = api_call "POST" ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
     if ( $null -eq $r ) {
         print_json($r)
     }
 }
 
-function create_perms($filePath) {
-    # Create oAuth2Perms
-    $payload = load_file_json $filePath | ConvertTo-Json
-    $r = api_call "POST" ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
-    if ( $null -eq $r ) {
-        print_json($r)
+# --------------------------------------------------------------
+function PrintRoleDefinition($object) {
+	# Print role definition object in YAML-like style format
+	if ( $null -eq $object.name ) {
+		return
+	}
+
+    print("id: {0}" -f $object.name)  # Object UUID
+    $x = $object.properties           # Let's use a variable that's simpler to read   
+	print("properties:")
+	print("  {0} {1}" -f "roleName:", $x.roleName)
+	print("  {0} {1}" -f "description:", $x.description)
+    $scopes = $x.assignableScopes
+    if ( !$null -eq $scopes ) {
+        print("  {0,-18}" -f "assignableScopes:")
+        foreach ($scope in $scopes) {
+		    # If scope is a subscription print its name as a comment at end of line
+            if ( $scope.StartsWith("/subscriptions") ) {
+                $subId = LastElem $scope "/"
+                $subName = GetObjectName "s" $subId
+                print("    - {0} # {1}" -f $scope, $subName)
+            } else {
+                print("    - {0}" -f $scope)
+            }
+        }
+	} else {
+        print("  {0,-18} {1}" -f "assignableScopes:", "[]")
+	}
+
+	$permsSet = $x.permissions
+    # Observation: PowerShell automatic type coecion converts this array into a single instance if there's only 
+    # one element, which is usually the case with these RBAC permission sections. In other words, above should
+    # really be $x.permissions[0]. Ran into this PowerShell automatic type coercion pitfall while writing this function
+    # https://stackoverflow.com/questions/42355649/array-types-in-powershell-system-object-vs-arrays-with-specific-types
+
+    if ( !$null -eq $permsSet ) {
+        print("  {0,-18}" -f "permissions:")
+		$permsA = $permsSet.actions
+		if ( !$null -eq $permsA ) {
+			print("    {0,-16}" -f "actions:")
+            foreach ($i in $permsA) {
+				print("      - {0}" -f $i)
+			}
+		}
+		$permsDA = $permsSet.dataActions
+		if ( !$null -eq $permsDA ) {
+			print("    {0,-16}" -f "dataActions:")
+            foreach ($i in $permsDA) {
+				print("      - {0}" -f $i)
+			}
+		}
+		$permsNA = $permsSet.notActions
+		if ( !$null -eq $permsNA ) {
+			print("    {0,-16}" -f "notActions:")
+            foreach ($i in $permsNA) {
+				print("      - {0}" -f $i)
+			}
+		}
+		$permsNDA = $permsSet.notDataActions
+		if ( !$null -eq $permsNDA ) {
+			print("    {0,-16}" -f "notDataActions:")
+            foreach ($i in $permsNDA) {
+				print("      - {0}" -f $i)
+			}
+		}
+	} else {
+        print("{0,-20} {1}" -f "permissions:", "[]")
+	}
+}
+
+function PrintRoleAssignment($object) {
+	# Print role definition object in YAML-like style format
+	if ( $null -eq $object.name ) {
+		return
+	}
+
+	print("id: {0}" -f $object.name)
+    $x = $object.properties           # Let's use a variable that's simpler to read 
+    print("properties:")
+    
+	$roleUuid = LastElem $x.roleDefinitionId "/"
+    # Print role displayName and principal displayName as comments
+    # roleMap := GetIdNameMap("d")
+	# var nameMap map[string]string
+	# pType := StrVal(xProp["principalType"])
+	# switch pType {
+	# case "User":
+	# 	nameMap = GetIdNameMap("u")
+	# case "ServicePrincipal":
+	# 	nameMap = GetIdNameMap("sp")
+	# case "Group":
+	# 	nameMap = GetIdNameMap("g")
+	# }
+	# pId := StrVal(xProp["principalId"])
+	# pName := nameMap[StrVal(xProp["principalId"])]
+	#print("  %-17s %s  # %s displayName = \"%s\"\n", "principalId:", pId, pType, pName)
+    print("  {0,-17} {1}" -f "roleDefinitionId:", $roleUuid)    
+    print("  {0,-17} {1}" -f "principalId:", $x.principalId)
+
+    # If scope is subscription, print its displayName as comments
+    # subMap := GetIdNameMap("s")
+	# scope := StrVal(xProp["scope"])
+	# if strings.HasPrefix(scope, "/subscriptions") {
+	# 	split := strings.Split(scope, "/")
+	# 	subName := subMap[split[2]]
+	# 	print("  %-17s %s  # Sub = %s\n", "scope:", scope, subName)
+	# } else {
+	# 	print("  %-17s %s\n", "scope:", scope)
+	# }
+	print("  {0,-17} {1}" -f "scope:", $x.scope)
+}
+
+function show_object($id) {
+    # Show any RBAC role definitions and assigment with this UUID
+    $x = GetObjectById "a" $id
+    if ( $null -ne $x ) {
+        $foundDefinition = $True
+        PrintRoleAssignment($x)
+        exit
     }
+    $x = GetObjectById "d" $id
+    if ( $null -ne $x ) {
+        if ( $foundDefinition ) {
+            warning("WARNING! Above definition, as well as below assignment have the same UUID!")
+        }
+        PrintRoleDefinition($x)
+        exit
+    }
+    exit
 }
 
 # =================== MAIN ===========================
 if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
-    print_usage  # Don't accept less than 1 or more than 4 arguments
+    PrintUsage  # Don't accept less than 1 or more than 4 arguments
 }
 
-setup_confdir
+SetupConfDirectory
 
 if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg1 = $args[0]
@@ -513,18 +743,20 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     } elseif ( ($arg1 -eq "-kd") -or ($arg1 -eq "-kdj") -or ($arg1 -eq "-ka") -or ($arg1 -eq "-kaj") ) {
         create_skeleton $arg1
     } elseif ( $arg1 -eq "-v" ) {
-        print_usage
+        PrintUsage
     }
     # The rest do need API tokens set up
     setup_api_tokens
     if ( valid_uuid $arg1 ) {
-        show_sp_perms $arg1 
+        show_object $arg1
+    } elseif ( $arg1 -eq "-sj" ) {
+        $subs = get_subscriptions
+        print_json $subs
+        exit
     } elseif ( $arg1 -eq "-z" ) {
         dump_variables
-    } elseif ( valid_oauth_id $arg1 ) {
-        show_perms $arg1
     } else {
-        print_usage
+        PrintUsage
     }
 } elseif ( $args.Count -eq 2 ) {  # Process 2-argument requests
     $arg1 = $args[0]
@@ -537,7 +769,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     } elseif ( valid_oauth_id $arg1 ) {
         update_perms $arg1 $arg2
     } else {
-        print_usage
+        PrintUsage
     }
 } elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
     $arg1 = $args[0]
@@ -546,7 +778,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     if ( $arg1 -eq "-cri" ) {
         setup_interactive_login $arg2 $arg3
     } else {
-        print_usage
+        PrintUsage
     }
 } elseif ( $args.Count -eq 4 ) {  # Process 4-argument requests
     $arg1 = $args[0]
@@ -556,8 +788,8 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     if ( $arg1 -eq "-cr" ) {
         setup_automated_login $arg2 $arg3 $arg4
     } else {
-        print_usage
+        PrintUsage
     }
 } else {
-    print_usage
+    PrintUsage
 }
