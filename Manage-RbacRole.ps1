@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "6"
+$global:prgver          = "7"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -851,6 +851,14 @@ function ShowObject($id) {
     exit
 }
 
+function UpsertAzObject($specfile) {
+    if ( -not (FileExist $specfile) ) {
+        die("File $specfile doesn't exists.")
+    }
+    print("Not ready")
+    exit
+}
+
 # =================== MAIN ===========================
 if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
     PrintUsage  # Don't accept less than 1 or more than 4 arguments
@@ -896,10 +904,8 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     SetupApiTokens
     if ( $arg1 -eq "-d" ) {
         DeleteObject $arg2
-    } elseif ( ( $arg1 -eq "-a" ) -and ( FileExist $arg2 ) ) {
-        create_perms $arg2
-    } elseif ( valid_oauth_id $arg1 ) {
-        update_perms $arg1 $arg2
+    } elseif ( $arg1 -eq "-u" ) {
+        UpsertAzObject $arg2
     } else {
         PrintUsage
     }
