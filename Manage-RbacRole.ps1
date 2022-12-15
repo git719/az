@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "7"
+$global:prgver          = "8"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -47,10 +47,12 @@ function print($msg) {
 function PrintUsage() {
     die("$prgname Azure RBAC role definition & assignment manager v$prgver`n" +
         "    UUID                              List definition or assignment given its UUID`n" +
-        "    -d UUID|SPECFILE|`"role name`"      Delete definition or assignment based on specifier`n" +
-        "    -u SPECFILE                       Create or update definition or assignment based on specfile`n" +
+        "    -rm UUID|SPECFILE|`"role name`"     Delete definition or assignment based on specifier`n" +
+        "    -up SPECFILE                      Create or update definition or assignment based on specfile`n" +
         "    -kd[j]                            Create a skeleton role-definition.yaml specfile (JSON option)`n" +
         "    -ka[j]                            Create a skeleton role-assignment.yaml specfile (JSON option)`n" +
+        "    -d[j]                             List all role definitions (JSON option)`n" +
+        "    -a[j]                             List all role assignments (JSON option)`n" +
         "    -s[j]                             List all subscriptions (JSON option)`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
@@ -902,9 +904,9 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg1 = $args[0]
     $arg2 = $args[1]
     SetupApiTokens
-    if ( $arg1 -eq "-d" ) {
+    if ( $arg1 -eq "-rm" ) {
         DeleteObject $arg2
-    } elseif ( $arg1 -eq "-u" ) {
+    } elseif ( $arg1 -eq "-up" ) {
         UpsertAzObject $arg2
     } else {
         PrintUsage
