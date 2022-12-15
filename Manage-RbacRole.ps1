@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "8"
+$global:prgver          = "9"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -48,12 +48,15 @@ function PrintUsage() {
     die("$prgname Azure RBAC role definition & assignment manager v$prgver`n" +
         "    UUID                              List definition or assignment given its UUID`n" +
         "    -rm UUID|SPECFILE|`"role name`"     Delete definition or assignment based on specifier`n" +
-        "    -up SPECFILE                      Create or update definition or assignment based on specfile`n" +
+        "    -up SPECFILE                      Create or update definition or assignment based on specfile (YAML or JSON)`n" +
         "    -kd[j]                            Create a skeleton role-definition.yaml specfile (JSON option)`n" +
         "    -ka[j]                            Create a skeleton role-assignment.yaml specfile (JSON option)`n" +
-        "    -d[j]                             List all role definitions (JSON option)`n" +
-        "    -a[j]                             List all role assignments (JSON option)`n" +
-        "    -s[j]                             List all subscriptions (JSON option)`n" +
+        "    -d[j]                             List all role definitions`n" +
+        "    -d[j] SPECIFIER                   List all role definitions, filter by SPECIFIER`n" +
+        "    -a[j]                             List all role assignments`n" +
+        "    -a[j] SPECIFIER                   List all role assignments, filter by SPECIFIER`n" +
+        "    -s[j]                             List all subscriptions`n" +
+        "    -s[j] SPECIFIER                   List all subscriptions, filter by SPECIFIER`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
@@ -402,32 +405,46 @@ function GetObjectName($t, $id) {
 }
 
 function GetAllAzObjects($t) {
-    # Get all role definitions or assignments in the tenant
+    # Get all Azure objects of type $t
     $oList = @()
-    $uniqueIds = @()
-    $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-    $r = ApiCall "GET" ($url) -silent
-    if ( $null -ne $r.value ) {
-        $oList = $r.value
-        foreach ($i in $r.value) {
-            $uniqueIds += $i.name  # Keep track of each unique object we're adding to the growing list
-        }
-    }
-    # Finally, alse get all the objects under each subscription
-    foreach ($subId in GetSubIds) {
-        $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-        $r = ApiCall "GET" ($url) -silent
-        if ( $null -ne $r.value ) {
-            foreach ($i in $r.value) {
-                if ( $uniqueIds -Match $i.name) {
-                    continue  # Unfortunately objects repeat down the subscription hierarchy, so we avoid them here
+    switch ( $t ) {
+        { "d", "a" -eq $_ } {
+            # Role definitions and assignments
+            $uniqueIds = @()
+            $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id
+            $url += "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
+            $r = ApiCall "GET" ($url) -silent
+            if ( $null -ne $r.value ) {
+                $oList = $r.value
+                foreach ($i in $r.value) {
+                    $uniqueIds += $i.name  # Keep track of each unique object we're adding to the growing list
                 }
-                $olist += $i
-                $uniqueIds += $i.name
             }
+            # Finally, alse get all the objects under each subscription
+            foreach ($subId in GetSubIds) {
+                $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
+                $r = ApiCall "GET" ($url) -silent
+                if ( $null -ne $r.value ) {
+                    foreach ($i in $r.value) {
+                        if ( $uniqueIds -Match $i.name) {
+                            continue  # Unfortunately objects repeat down the subscription hierarchy, so we avoid them here
+                        }
+                        $olist += $i
+                        $uniqueIds += $i.name
+                    }
+                }
+            }
+            return $oList        
+        }
+        "s" {
+            # Subscriptions
+            $r = ApiCall "GET" ($az_url + "/" + $oMap["s"] + "?api-version=2020-01-01")
+            if ( ($null -ne $r) -and ($null -ne $r.value) ) {
+                return $r.value
+            }
+	        return $null
         }
     }
-    return $oList
 }
 
 function GetAzObjectById($t, $id) {
@@ -520,6 +537,19 @@ function GetAzObjectByName($t, $name) {
     }	
 }
 
+function GetSubIds() {
+	# Get all subscription UUIDs
+    #$subIds = [System.Collections.Generic.List[string]]::new()
+    $subIds = @()
+    foreach ($sub in GetAllAzObjects "s") {
+        if ( $sub.displayName -eq "Access to Azure Active Directory" ) {
+            continue
+        }
+        $subIds += $sub.subscriptionId
+    }
+	return $subIds
+}
+
 function GetAzRoleAssignment($roleDefId, $principalId, $scope) {
     # Get role assignment with given roleId/principalId/scope triad
     $target = LastElem $roleDefId "/"
@@ -545,29 +575,51 @@ function DeleteAzObject($x) {
     exit
 }
 
-function GetSubIds() {
-	# Get all subscription IDs
-	# for _, i := range GetAllObjects("s") {   # FUTURE
-    $subIds = [System.Collections.Generic.List[string]]::new()
-    foreach ($sub in GetSubscriptions) {
-        if ( $sub.displayName -eq "Access to Azure Active Directory" ) {
-            continue
+function GetMatching($t, $filter) {
+    # Search and retrieve all Azure objects of type $t whose attributes match on $filter 
+    $oList = @()
+    switch ( $t ) {
+        "d" {
+            foreach ($i in GetAllAzObjects "d") {
+                $p = $i.properties
+                # Matching criteria for: Role definitions
+                if ( ($i.name -match $filter) -or ($p.roleName -match $filter) -or
+                        ($p.type -match $filter) -or ($p.description -match $filter) ) {
+                    $oList += $i
+                }
+            }
+            return $oList
         }
-        $subIds.Add($sub.subscriptionId)
+        "a" {
+            foreach ($i in GetAllAzObjects "a") {
+                $p = $i.properties
+                # Matching criteria for: Role assignments
+                if ( ($i.name -match $filter) -or ($p.principalId -match $filter) -or
+                        ($p.roleDefinitionId -match $filter) -or ($p.scope -match $filter) ) {
+                    $oList += $i
+                }
+            }
+            return $oList
+        }
+        "s" {
+            foreach ($i in GetAllAzObjects "s") {
+                # Matching criteria for: Subscriptions
+                if ( ($i.displayName -match $filter) -or ($i.subscriptionId -match $filter) -or
+                     ($i.i -match $filter) -or ($p.state -match $filter) ) {
+                    $oList += $i
+                }
+            }
+            return $oList
+        }
+        default {
+            return $oList
+        }
     }
-	return $subIds
-}
-
-function GetSubscriptions() {
-	$r = ApiCall "GET" ($az_url + "/" + $oMap["s"] + "?api-version=2020-01-01")
-	if ( ($null -ne $r) -and ($null -ne $r.value) ) {
-        return $r.value
-	}
-	return $null
 }
 
 # =================== PROGRAM FUNCTIONS =======================
 function CreateSkeletonFile($fileType) {
+    # Create specfile using HereDocs
     switch ( $fileType.ToLower() ) {
     "-kd"   {
                 $name = "role-definition.yaml"
@@ -659,29 +711,27 @@ properties:
     exit
 }
 
+function DeletePrompt($t, $x) {
+    PrintAzObject $t ($x)
+    $Confirm = Read-Host -Prompt "DELETE above? y/n "
+    if ( $Confirm -eq "y" ) {
+        DeleteAzObject $x
+    }
+    die("Aborted.")
+}
+
 function DeleteObject($specifier) {
     # Delete role definition or assignment based on string specifier
     if ( ValidUuid $specifier ) {
-        #print("Deleting by UUID")
         $x = GetAzObjectById "d" $specifier  # Check definitions
         if ( $null -ne $x ) {
-            PrintRoleDefinition($x)
-            $Confirm = Read-Host -Prompt "DELETE above role definition? y/n "
-            if ( $Confirm -eq "y" ) {
-                DeleteAzObject $x
-            }
-            die("Aborted.")
+            DeletePrompt "d" $x
         }
         $x = GetAzObjectById "a" $specifier  # Check assignments
         if ( $null -ne $x ) {
-            PrintRoleAssignment($x)
-            $Confirm = Read-Host -Prompt "DELETE above role assignment? y/n "
-            if ( $Confirm -eq "y" ) {
-                DeleteAzObject $x
-            }
-            die("Aborted.")
+            DeletePrompt "a" $x
         }
-        die("$specifier is a valid UUID, but no assignment or definition has it.")
+        die("No assignment or definition with UUID $specifier")
     } elseif ( FileExist $specifier ) {
         # Delete object defined in specfile
         $x = LoadFileYaml $specifier
@@ -693,21 +743,11 @@ function DeleteObject($specifier) {
         }
         if ( $null -ne $x.properties.roleName ) {
             $x = GetAzObjectByName "d" $x.properties.roleName
-            PrintRoleDefinition($x)
-            $Confirm = Read-Host -Prompt "DELETE above role definition? y/n "
-            if ( $Confirm -eq "y" ) {
-                DeleteAzObject $x
-            }
-            die("Aborted.")
+            DeletePrompt "d" $x
         } elseif ( $null -ne $x.properties.roleDefinitionId ) {
-            # Getting assignment objects can't be done by Id or Name, so we enlist a special function
+            # Getting assignment objects can't be done by Id or Name, so force to enlist a special function
             $x = GetAzRoleAssignment $x.properties.roleDefinitionId $x.properties.principalId $x.properties.scope
-            PrintRoleAssignment($x)
-            $Confirm = Read-Host -Prompt "DELETE above role assignment? y/n "
-            if ( $Confirm -eq "y" ) {
-                DeleteAzObject $x
-            }
-            die("Aborted.")
+            DeletePrompt "a" $x
         } else {
             die("Files does not appear to be a valid role definition or assignment file.")
         }
@@ -718,17 +758,12 @@ function DeleteObject($specifier) {
         if ( $null -eq $x ) {
             die("There is no role definition with '$specifier' as its name.")
         } else {
-            PrintRoleDefinition($x)
-            $Confirm = Read-Host -Prompt "DELETE above role definition? y/n "
-            if ( $Confirm -eq "y" ) {
-                DeleteAzObject $x
-            }
-            die("Aborted.")
+            DeletePrompt "d" $x
         }
     }
 }
 
-function PrintRoleDefinition($object) {
+function PrintAzRoleDefinition($object) {
 	# Print role definition object in YAML-like style format
 	if ( $null -eq $object ) {
 		return
@@ -799,7 +834,7 @@ function PrintRoleDefinition($object) {
 	}
 }
 
-function PrintRoleAssignment($object) {
+function PrintAzRoleAssignment($object) {
 	# Print role definition object in YAML-like style format
 	if ( $null -eq $object ) {
 		return
@@ -835,11 +870,61 @@ function PrintRoleAssignment($object) {
     }
 }
 
+function PrintAzSubscription($object) {
+	# Print subscription object in YAML-like style format
+	if ( $null -eq $object ) {
+		return
+	}
+    print("{0,-20} {1}" -f "displayName:", $x.displayName)
+    print("{0,-20} {1}" -f "subscriptionId:", $x.subscriptionId)
+    print("{0,-20} {1}" -f "state:", $x.state)
+    print("{0,-20} {1}" -f "tenantId:", $x.tenantId)
+}
+
+function PrintAllAzObjectsTersely($t) {
+	# List tersely all object of type $t
+	foreach ($i in GetAllAzObjects $t ) {  # Iterate through all objects
+		PrintAzObjectTersely $t $i
+	}
+}
+
+function PrintAzObjectTersely($t, $x) {
+	# Print this single $t type object tersely (minimal attributes)
+	switch ( $t ) {
+	    "d" {
+            print("{0}  {1,-60}  {2}" -f $x.name, $x.properties.roleName, $x.properties.type)
+        }
+	    "a" {
+            $p = $x.properties
+            $roleId = LastElem $p.roleDefinitionId "/"
+            print("{0}  {1}  {2} {3,-18} {4}"-f $x.name, $roleId, $p.principalId, $p.principalType, $p.scope)
+        }
+	    "s" {
+            print("{0}  {1,-10}  {2}"-f $x.subscriptionId, $x.state, $x.displayName)
+        }
+	}
+}
+
+function PrintAzObject($t, $x) {
+    # Generisized print_object function
+	switch ( $t ) {
+	    "d" {
+		    PrintAzRoleDefinition $x
+        }
+	    "a" {
+		    PrintAzRoleAssignment $x
+        }
+	    "s" {
+		    PrintAzSubscription $x
+        }
+    }
+}
+
 function ShowObject($id) {
     # Show any RBAC role definitions and assigment with this UUID
     $x = GetAzObjectById "d" $id
     if ( $null -ne $x ) {
-        PrintRoleDefinition($x)
+        PrintAzRoleDefinition($x)
         $foundDefinition = $True
     }
     $x = GetAzObjectById "a" $id
@@ -848,7 +933,7 @@ function ShowObject($id) {
             # Hopefully this is never seen
             warning("WARNING! Above role definition, and below role assignment both have the same UUID!")
         }
-        PrintRoleAssignment($x)
+        PrintAzRoleAssignment($x)
     }
     exit
 }
@@ -885,15 +970,14 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     SetupApiTokens
     if ( ValidUuid $arg1 ) {
         ShowObject $arg1
-    } elseif ( { "-sj", "-s"  -eq $arg1 } ) {
-        $subs = GetSubscriptions
-        if ( $arg1 -eq "-sj" ) {
-            PrintJson $subs
-        } else {
-            foreach ($i in $subs) {
-                print("{0}  {1,-10}  {2}"-f $i.subscriptionId, $i.state, $i.displayName)
-            }
-        }
+    } elseif ( ($arg1 -eq "-dj") -or ($arg1 -eq "-aj") -or ($arg1 -eq "-sj") ) {
+        $t = $arg1.Substring(1,1)    # Get object type designator
+        $allObjects = GetAllAzObjects $t
+        PrintJson ($allObjects)
+        exit
+    } elseif ( ($arg1 -eq "-d") -or ($arg1 -eq "-a") -or ($arg1 -eq "-s") ) {
+        $t = $arg1.Substring(1,1)    # Get object type designator
+        PrintAllAzObjectsTersely $t
         exit
     } elseif ( $arg1 -eq "-z" ) {
         DumpVariables
@@ -901,30 +985,46 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
         PrintUsage
     }
 } elseif ( $args.Count -eq 2 ) {  # Process 2-argument requests
-    $arg1 = $args[0]
-    $arg2 = $args[1]
+    $arg1 = $args[0] ; $arg2 = $args[1]
     SetupApiTokens
     if ( $arg1 -eq "-rm" ) {
         DeleteObject $arg2
     } elseif ( $arg1 -eq "-up" ) {
         UpsertAzObject $arg2
+    } elseif ( ($arg1 -eq "-dj") -or ($arg1 -eq "-aj") -or ($arg1 -eq "-sj") ) {
+        # Process request with JSON formatted output option
+        $t = $arg1.Substring(1,1)    # Get object type designator
+        $objects = GetMatching $t $arg2   # Get all matching objects
+        if ( $objects.Count -gt 1 ) {
+            PrintJson $objects
+        } elseif ( $objects.Count -gt 0 ) {
+            PrintJson $objects[0]
+        }
+        exit
+    } elseif ( ($arg1 -eq "-d") -or ($arg1 -eq "-a") -or ($arg1 -eq "-s") ) {
+        # Process request with reguarly, tersely formatted output option
+        $t = $arg1.Substring(1,1)    # Get object type designator
+        $objects = GetMatching $t $arg2
+        if ( $objects.Count -gt 1 ) {
+            foreach ($i in $objects) {
+                PrintAzObjectTersely $t $i
+            }
+        } elseif ( $objects.Count -gt 0 ) {
+            PrintAzObject $t $objects[0]
+        }
+        exit
     } else {
         PrintUsage
     }
 } elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
-    $arg1 = $args[0]
-    $arg2 = $args[1]
-    $arg3 = $args[2]
+    $arg1 = $args[0] ; $arg2 = $args[1] ; $arg3 = $args[2]
     if ( $arg1 -eq "-cri" ) {
         SetupInteractiveLogin $arg2 $arg3
     } else {
         PrintUsage
     }
 } elseif ( $args.Count -eq 4 ) {  # Process 4-argument requests
-    $arg1 = $args[0]
-    $arg2 = $args[1]
-    $arg3 = $args[2]
-    $arg4 = $args[3]
+    $arg1 = $args[0] ; $arg2 = $args[1] ; $arg3 = $args[2] ; $arg4 = $args[3]
     if ( $arg1 -eq "-cr" ) {
         SetupAutomatedLogin $arg2 $arg3 $arg4
     } else {
