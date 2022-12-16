@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "10"
+$global:prgver          = "11"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -691,14 +691,14 @@ properties:
     # Current limitation: Custom role with dataAction or noDataAction can ONLY be defined at subscriptions level.
     - /providers/Microsoft.Management/managementGroups/3f550b9f-8888-7777-ad61-111199992222
   permissions:
-    actions:
-      - Microsoft.DevCenter/projects/*/read                     # Sample action
-    notActions:
-      - Microsoft.DevCenter/projects/pools/read                 # Sample notAction
-    dataActions:
-      - Microsoft.KeyVault/vaults/secrets/*                     # Sample dataAction
-    notDataActions:
-      - Microsoft.CognitiveServices/accounts/LUIS/apps/delete   # Sample notDataAction
+    - actions:
+        - Microsoft.DevCenter/projects/*/read                     # Sample action
+      notActions:
+        - Microsoft.DevCenter/projects/pools/read                 # Sample notAction
+      dataActions:
+        - Microsoft.KeyVault/vaults/secrets/*                     # Sample dataAction
+      notDataActions:
+        - Microsoft.CognitiveServices/accounts/LUIS/apps/delete   # Sample notDataAction
 
 "@
             ; break
