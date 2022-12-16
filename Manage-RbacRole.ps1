@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "9"
+$global:prgver          = "10"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -51,12 +51,9 @@ function PrintUsage() {
         "    -up SPECFILE                      Create or update definition or assignment based on specfile (YAML or JSON)`n" +
         "    -kd[j]                            Create a skeleton role-definition.yaml specfile (JSON option)`n" +
         "    -ka[j]                            Create a skeleton role-assignment.yaml specfile (JSON option)`n" +
-        "    -d[j]                             List all role definitions`n" +
-        "    -d[j] SPECIFIER                   List all role definitions, filter by SPECIFIER`n" +
-        "    -a[j]                             List all role assignments`n" +
-        "    -a[j] SPECIFIER                   List all role assignments, filter by SPECIFIER`n" +
-        "    -s[j]                             List all subscriptions`n" +
-        "    -s[j] SPECIFIER                   List all subscriptions, filter by SPECIFIER`n" +
+        "    -d[j] [SPECIFIER]                 List all role definitions, with filter by SPECIFIER and JSON options`n" +
+        "    -a[j] [SPECIFIER]                 List all role assignments, with filter by SPECIFIER and JSON options`n" +
+        "    -s[j] SPECIFIER                   List all subscriptions, with filter by SPECIFIER and JSON options`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
@@ -344,7 +341,7 @@ function ApiCall() {
         $headers = @{}
     }
     
-    # Merge global and additionally called parameters and headers for both AZ and MG APIs
+    # Merge global and additionally called headers for both AZ and MG APIs
 	if ( $resource.StartsWith($az_url) ) {
         $global:az_headers.GetEnumerator() | ForEach-Object {
             $headers.Add($_.Key, $_.Value)
@@ -358,31 +355,27 @@ function ApiCall() {
 
     try {
         if ( $verbose ) {
-            print("==== REQUEST ================================`n" +
-                "$method : $resource`n" +
-                "PARAMS : $($params | ConvertTo-Json -Depth 100)`n" +
-                "HEADERS : $($headers | ConvertTo-Json -Depth 100)`n" +
-                "PAYLOAD : $data")
+            print("$method : $resource`n" +
+                "REQUEST_HEADERS : $($headers | ConvertTo-Json -Depth 100)`n" +
+                "REQUEST_PAYLOAD : $data")
         }
-        $ProgressPreference = "SilentlyContinue"  # Don't show progress in the command prompt UI
-        switch ( $method.ToUpper() ) {
-        "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'GET' ; break }
-        "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
-        "DELETE"    { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'DELETE' ; break }
-        "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
-        }
+        $ProgressPreference = "SilentlyContinue"  # Suppress UI progress indicator
+        $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method $method
         if ($verbose) {
             print("==== RESPONSE ================================`n" +
-                "STATUS_CODE: $($r.StatusCode)`n" +
-                "RESPONSE $($r | ConvertFrom-Json -Depth 100)")
+                "RESPONSE_CODE: $($r.StatusCode)")
+            if ($null -ne $r) {
+                print("RESPONSE_MESSAGE: $r")
+            }
         }
         return ($r | ConvertFrom-Json -Depth 100)
     }
     catch {
         if ( $verbose -or !$silent) {
-            print("==== EXCEPTION ================================`n" +
-                "MESSAGE: $($_.Exception.Message)`n" +
-                "RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 100)")
+            warning("EXCEPTION_MESSAGE: $($_.Exception.Message)")
+        }
+        if ( $verbose ) {
+            print("EXCEPTION_RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 100)")
         }
     }
 }
@@ -617,6 +610,71 @@ function GetMatching($t, $filter) {
     }
 }
 
+function UpsertAzRoleDefinition($x) {
+    # Create or update role definition, as per specfile
+    $p = $x.properties
+    $name = $p.roleName
+    $scope = $p.assignableScopes[0]
+    if ( ($null -eq $p ) -or ($null -eq $name ) -or ($null -eq $scope ) -or
+         ($null -eq $p.type ) -or ($null -eq $p.description ) ) {
+        die("Specfile is missing required attributes.`n" +
+            "Run script with '-kd[j]' option to create a properly formatted sample skeleton file.")
+    }
+
+    $existing = GetAzObjectByName "d" $name
+    if ( $null -eq $existing.name ) {
+        print("Creating NEW role definition '{0}' as per specfile" -f $name)
+        $roleId = [guid]::NewGuid()  # Generate a new global UUID
+    } else {
+        PrintAzObject "d" $x  # Print the one we got from specfile
+        warning("WARNING: Role already exists in Azure.")
+        $Confirm = Read-Host -Prompt "UPDATE existing one with above? y/n "
+        if ( $Confirm -ne "y" ) {
+            die("Aborted.")
+        }
+        print("Updating role ...")
+        $roleId = $existing.name  # Existing role definition UUID
+    }
+
+    # For the scope in the API call we can just use the 1st one
+    $body = $x | ConvertTo-Json -Depth 100
+    $url = $az_url + $scope + "/providers/Microsoft.Authorization/roleDefinitions/"
+    $r = ApiCall "PUT" ( $url + $roleId + "?api-version=2022-04-01") -data $body
+    PrintJson $r
+    exit    
+}
+
+function CreateAzRoleAssignment($x) {
+	# Create Azure role assignment
+    $p = $x.properties
+    $roleDefinitionId = LastElem $p.roleDefinitionId "/"  # Note we only care about the UUID
+    $principalId = $p.principalId
+    $scope = $p.scope
+    if ( ($null -eq $p ) -or ($null -eq $roleDefinitionId ) -or
+         ($null -eq $principalId ) -or ($null -eq $scope ) ) {
+        die("Specfile is missing one or more of the 3 required attributes.`n`n" +
+            "properties:`n" +
+            "    roleDefinitionId: <UUID or fully_qualified_role_definition_id>`n" +
+            "    principalId: <UUID>`n" +
+            "    scope: <resource_path_scope>`n`n" +
+            "Run script with '-ka[j]' option to create a properly formatted sample skeleton file.")
+    }
+
+    # Note, there is no need to pre-check if assignment exists, since below call will let us know.
+    $roleAssignmentName = [guid]::NewGuid()  # Generate a new global UUID
+    $payload = @{
+        "properties" = @{
+            "roleDefinitionId" = "/providers/Microsoft.Authorization/roleDefinitions/" + $roleDefinitionId
+            "principalId" = $principalId
+        }
+    } | ConvertTo-Json
+    
+    $url = $az_url + $scope + "/providers/Microsoft.Authorization/roleAssignments/"
+    $r = ApiCall "PUT" ( $url + $roleAssignmentName + "?api-version=2022-04-01") -data $payload
+    PrintJson $r
+    exit
+}
+
 # =================== PROGRAM FUNCTIONS =======================
 function CreateSkeletonFile($fileType) {
     # Create specfile using HereDocs
@@ -627,6 +685,7 @@ function CreateSkeletonFile($fileType) {
 properties:
   roleName:    My RBAC Role
   description: Description of what this role does.
+  type: CustomRole
   assignableScopes:
     # Example scopes of where this role will be DEFINED. Recommendation: Define at highest point only, the Tenant Root Group level.
     # Current limitation: Custom role with dataAction or noDataAction can ONLY be defined at subscriptions level.
@@ -651,6 +710,7 @@ properties:
   "properties": {
     "roleName": "My RBAC Role",
     "description": "Description of what this role does.",
+    "type": "CustomRole",
     "assignableScopes": [
       "/providers/Microsoft.Management/managementGroups/3f550b9f-8888-7777-ad61-111199992222"
     ],
@@ -669,8 +729,7 @@ properties:
           "Microsoft.CognitiveServices/accounts/LUIS/apps/delete"
         ]
       }
-    ],
-    "type": "CustomRole"
+    ]
   }
 }    
 
@@ -764,7 +823,7 @@ function DeleteObject($specifier) {
 }
 
 function PrintAzRoleDefinition($object) {
-	# Print role definition object in YAML-like style format
+	# Print role definition object in YAML format
 	if ( $null -eq $object ) {
 		return
 	}
@@ -776,6 +835,7 @@ function PrintAzRoleDefinition($object) {
 	print("properties:")
 	print("  {0} {1}" -f "roleName:", $x.roleName)
 	print("  {0} {1}" -f "description:", $x.description)
+	print("  {0} {1}" -f "type:", $x.type)
     $scopes = $x.assignableScopes
     if ( !$null -eq $scopes ) {
         print("  {0,-18}" -f "assignableScopes:")
@@ -793,44 +853,42 @@ function PrintAzRoleDefinition($object) {
         print("  {0,-18} {1}" -f "assignableScopes:", "[]")
 	}
 
-	$permsSet = $x.permissions
-    # Observation: PowerShell's automatic type coecion converts this array into a single instance if there's only 
-    # one element, which is usually the case with these RBAC permission sections. In other words, above should
-    # really be $x.permissions[0]. Ran into this unexpected PowerShell behaviour while writing this function
-    # https://stackoverflow.com/questions/42355649/array-types-in-powershell-system-object-vs-arrays-with-specific-types
+	$pSet = $x.permissions
+    # Observation: PowerShell performs many type conversions behind the scenes, which are typically
+    # helpful, but can turn into pitfalls. In this case, the RBAC permission section is actually a
+    # a single entry, always. However, PowerShell automatically converts this array into a single
+    # instance, and that's unexpected. In other languages above assignment would read $x.permissions[0]
 
-    if ( !$null -eq $permsSet ) {
+    if ( !$null -eq $pSet ) {
         print("  {0,-18}" -f "permissions:")
-		$permsA = $permsSet.actions
-		if ( !$null -eq $permsA ) {
-			print("    {0,-16}" -f "actions:")
-            foreach ($i in $permsA) {
-				print("      - {0}" -f $i)
+        # CRITICAL: Next line is critical, as it ensures this YAML printout represents this
+        # permissions section as an array/list, which is what this permission section really is. 
+        Write-Host -NoNewline "    - "
+
+		print("{0,-12}" -f "actions:")
+		if ( $pSet.actions.Count -gt 0 ) {
+            foreach ($i in $pSet.actions) {
+				print("        - {0}" -f $i)
 			}
 		}
-		$permsDA = $permsSet.dataActions
-		if ( !$null -eq $permsDA ) {
-			print("    {0,-16}" -f "dataActions:")
-            foreach ($i in $permsDA) {
-				print("      - {0}" -f $i)
+        print("      {0,-14}" -f "notActions:")
+		if ( $pSet.notActions.Count -gt 0 ) {
+            foreach ($i in $pSet.notActions) {
+				print("        - {0}" -f $i)
 			}
 		}
-		$permsNA = $permsSet.notActions
-		if ( !$null -eq $permsNA ) {
-			print("    {0,-16}" -f "notActions:")
-            foreach ($i in $permsNA) {
-				print("      - {0}" -f $i)
+        print("      {0,-14}" -f "dataActions:")
+		if ( $pSet.dataActions.Count -gt 0 ) {
+            foreach ($i in $pSet.dataActions) {
+				print("        - {0}" -f $i)
 			}
 		}
-		$permsNDA = $permsSet.notDataActions
-		if ( !$null -eq $permsNDA ) {
-			print("    {0,-16}" -f "notDataActions:")
-            foreach ($i in $permsNDA) {
-				print("      - {0}" -f $i)
+        print("      {0,-14}" -f "notDataActions:")
+		if ( $pSet.notDataActions.Count -gt 0 ) {
+            foreach ($i in $pSet.notDataActions) {
+				print("        - {0}" -f $i)
 			}
 		}
-	} else {
-        print("{0,-20} {1}" -f "permissions:", "[]")
 	}
 }
 
@@ -939,11 +997,29 @@ function ShowObject($id) {
 }
 
 function UpsertAzObject($specfile) {
+    # Create or Update role definition or assignment
     if ( -not (FileExist $specfile) ) {
         die("File $specfile doesn't exists.")
     }
-    print("Not ready")
-    exit
+    # Let's pretend it's a YAML file
+    $x = LoadFileYaml $specfile
+    if ( $null -eq $x ) {
+        # That didn't work, so let's try JSON
+        $x = LoadFileJson $specfile
+        if ( $null -eq $x ) {
+            die("$specfile is not a valid YAML or JSON file.")
+        }
+    }
+    # We seem to have a would-be object from the file
+    if ( $null -ne $x.properties.roleName ) {
+        # It's a Role Definition
+        UpsertAzRoleDefinition $x
+    } elseif ( $null -ne $x.properties.roleDefinitionId ) {
+        # It's a Role Assignment
+        CreateAzRoleAssignment $x
+    } else {
+        die("Files does not appear to be a valid role definition or assignment file.")
+    }
 }
 
 # =================== MAIN ===========================
@@ -990,7 +1066,7 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     if ( $arg1 -eq "-rm" ) {
         DeleteObject $arg2
     } elseif ( $arg1 -eq "-up" ) {
-        UpsertAzObject $arg2
+        UpsertAzObject $arg2  # Create or Update role definition or assignment
     } elseif ( ($arg1 -eq "-dj") -or ($arg1 -eq "-aj") -or ($arg1 -eq "-sj") ) {
         # Process request with JSON formatted output option
         $t = $arg1.Substring(1,1)    # Get object type designator
