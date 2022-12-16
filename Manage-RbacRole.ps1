@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "11"
+$global:prgver          = "12"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -626,6 +626,7 @@ function UpsertAzRoleDefinition($x) {
         print("Creating NEW role definition '{0}' as per specfile" -f $name)
         $roleId = [guid]::NewGuid()  # Generate a new global UUID
     } else {
+        print("id: {0}" -f $existing.name)
         PrintAzObject "d" $x  # Print the one we got from specfile
         warning("WARNING: Role already exists in Azure.")
         $Confirm = Read-Host -Prompt "UPDATE existing one with above? y/n "
