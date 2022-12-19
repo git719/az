@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "13"
+$global:prgver          = "14"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -31,18 +31,6 @@ $global:oMap            = @{      # Hashtable to help generesize many of the fun
 }
 
 # =================== HOUSEKEEPING FUNCTIONS =======================
-function die($msg) {
-    Write-Host -ForegroundColor Yellow $msg ; exit
-}
-
-function warning($msg) {
-    Write-Host -ForegroundColor Yellow $msg
-}
-
-function print($msg) {
-    Write-Host ($msg)
-}
-
 function PrintUsage() {
     die("$prgname Azure RBAC role definition & assignment manager v$prgver`n" +
         "    UUID                              List definition or assignment given its UUID`n" +
@@ -60,6 +48,18 @@ function PrintUsage() {
         "    -cri TENANT_ID USERNAME           Set up MSAL interactive browser popup login`n" +
         "    -tx                               Delete MSAL local session cache`n" +
         "    -v                                Display this usage")
+}
+
+function die($msg) {
+    Write-Host -ForegroundColor Yellow $msg ; exit
+}
+
+function warning($msg) {
+    Write-Host -ForegroundColor Yellow $msg
+}
+
+function print($msg) {
+    Write-Host ($msg)
 }
 
 function SetupConfDirectory() {
