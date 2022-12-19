@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "12"
+$global:prgver          = "13"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -19,8 +19,7 @@ $global:mg_headers      = @{}
 $global:az_url          = "https://management.azure.com"
 $global:az_token        = @{}
 $global:az_headers      = @{}
-$global:oMap            = @{
-	# Hashtable for each ARM and MG object type to help generesize many of the functions
+$global:oMap            = @{      # Hashtable to help generesize many of the functions
     "d"  = "roleDefinitions"
     "a"  = "roleAssignments"
     "s"  = "subscriptions"
@@ -336,7 +335,7 @@ function ClearTokenCache() {
 
 # =================== API FUNCTIONS =======================
 function ApiCall() {
-    param ( [string]$method, $resource, $headers, $data, [switch]$verbose, [switch]$silent )
+    param ( [string]$method, $resource, $headers, $data, [switch]$verbose, [switch]$quiet )
     if ( $null -eq $headers ) {
         $headers = @{}
     }
@@ -371,7 +370,7 @@ function ApiCall() {
         return ($r | ConvertFrom-Json -Depth 100)
     }
     catch {
-        if ( $verbose -or !$silent) {
+        if ( $verbose -or !$quiet) {
             warning("EXCEPTION_MESSAGE: $($_.Exception.Message)")
         }
         if ( $verbose ) {
@@ -406,7 +405,7 @@ function GetAllAzObjects($t) {
             $uniqueIds = @()
             $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id
             $url += "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-            $r = ApiCall "GET" ($url) -silent
+            $r = ApiCall "GET" ($url) -quiet
             if ( $null -ne $r.value ) {
                 $oList = $r.value
                 foreach ($i in $r.value) {
@@ -416,7 +415,7 @@ function GetAllAzObjects($t) {
             # Finally, alse get all the objects under each subscription
             foreach ($subId in GetSubIds) {
                 $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-                $r = ApiCall "GET" ($url) -silent
+                $r = ApiCall "GET" ($url) -quiet
                 if ( $null -ne $r.value ) {
                     foreach ($i in $r.value) {
                         if ( $uniqueIds -Match $i.name) {
@@ -446,7 +445,7 @@ function GetAzObjectById($t, $id) {
         { "a", "d" -eq $_ } {
             # Search for the role definitions at the tenant level
             $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-            $r = ApiCall "GET" ($url) -silent
+            $r = ApiCall "GET" ($url) -quiet
             if ( $null -ne $r.value ) {
                 foreach ($i in $r.value) {
                     if ( $i.name -eq $id ) {  # The 'name' attribute is actually what we're looking for
@@ -457,7 +456,7 @@ function GetAzObjectById($t, $id) {
             # Finally, search for it under each subscription
             foreach ($subId in GetSubIds) {
                 $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-                $r = ApiCall "GET" ($url) -silent
+                $r = ApiCall "GET" ($url) -quiet
                 if ( $null -ne $r.value ) {
                     foreach ($i in $r.value) {
                         if ( $i.name -eq $id ) {
@@ -468,15 +467,15 @@ function GetAzObjectById($t, $id) {
             }
         }
         "s" {
-            $r = ApiCall "GET" ($az_url + "/" + $oMap[$t] + "/" + $id + "?api-version=2020-01-01") -silent
+            $r = ApiCall "GET" ($az_url + "/" + $oMap[$t] + "/" + $id + "?api-version=2020-01-01") -quiet
             return $r
         }
         "m" {
-            $r = ApiCall "GET" ($az_url + "/providers/Microsoft.Management/managementGroups/" + $id) -silent
+            $r = ApiCall "GET" ($az_url + "/providers/Microsoft.Management/managementGroups/" + $id) -quiet
             return $r
         }
         { "u", "g", "sp", "ap" -eq $_ } {
-            $r = ApiCall "GET" ($mg_url + "/v1.0/" + $oMap[$t]+ "/" + $id) -silent
+            $r = ApiCall "GET" ($mg_url + "/v1.0/" + $oMap[$t]+ "/" + $id) -quiet
             return $r
         }
     }	
@@ -491,7 +490,7 @@ function GetAzObjectByName($t, $name) {
         "d" {
             # Search for the role definitions at the tenant level
             $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-            $r = ApiCall "GET" ($url) -silent
+            $r = ApiCall "GET" ($url) -quiet
             if ( $null -ne $r.value ) {
                 foreach ($i in $r.value) {
                     if ( $i.properties.roleName -eq $name ) {
@@ -502,7 +501,7 @@ function GetAzObjectByName($t, $name) {
             # Finally, search for it under each subscription
             foreach ($subId in GetSubIds) {
                 $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-                $r = ApiCall "GET" ($url) -silent
+                $r = ApiCall "GET" ($url) -quiet
                 if ( $null -ne $r.value ) {
                     foreach ($i in $r.value) {
                         if ( $i.properties.roleName -eq $name ) {
@@ -513,18 +512,18 @@ function GetAzObjectByName($t, $name) {
             }
         }
         "s" {
-            $r = ApiCall "GET" ($az_url + "/" + $oMap[$t] + "?api-version=2020-01-01") -silent
+            $r = ApiCall "GET" ($az_url + "/" + $oMap[$t] + "?api-version=2020-01-01") -quiet
             if ( $null -eq $r) {
                 return $
             }
             return $r
         }
         "m" {
-            $r = ApiCall "GET" ($az_url + "/providers/Microsoft.Management/managementGroups/" + $id) -silent
+            $r = ApiCall "GET" ($az_url + "/providers/Microsoft.Management/managementGroups/" + $id) -quiet
             return $r
         }
         { "u", "g", "sp", "ap" -eq $_ } {
-            $r = ApiCall "GET" ($mg_url + "/v1.0/" + $oMap[$t]+ "/" + $id) -silent
+            $r = ApiCall "GET" ($mg_url + "/v1.0/" + $oMap[$t]+ "/" + $id) -quiet
             return $r
         }
     }	
@@ -547,7 +546,7 @@ function GetAzRoleAssignment($roleDefId, $principalId, $scope) {
     # Get role assignment with given roleId/principalId/scope triad
     $target = LastElem $roleDefId "/"
     $url = $az_url + $scope+ "/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01&`$filter=principalId+eq+'" + $principalId + "'"
-    $r = ApiCall "GET" ($url) -silent
+    $r = ApiCall "GET" ($url) -quiet
     if ( $null -ne $r.value ) {
         foreach ($i in $r.value) {
             if ( $i.properties.roleDefinitionId = $target ) {
@@ -561,7 +560,7 @@ function GetAzRoleAssignment($roleDefId, $principalId, $scope) {
 function DeleteAzObject($x) {
 	# Delete Azure role assignment or definition by its fully qualified ID
     $url = $az_url + $x.id + "?api-version=2022-04-01"       
-    $r = ApiCall "DELETE" ($url) -silent
+    $r = ApiCall "DELETE" ($url) -quiet
     if ( $null -eq $r ) {
         die("Error deleting object $($x.id)")
     }
@@ -776,6 +775,7 @@ function DeletePrompt($t, $x) {
     $Confirm = Read-Host -Prompt "DELETE above? y/n "
     if ( $Confirm -eq "y" ) {
         DeleteAzObject $x
+        exit
     }
     die("Aborted.")
 }
