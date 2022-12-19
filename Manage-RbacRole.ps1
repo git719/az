@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "14"
+$global:prgver          = "15"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -114,7 +114,7 @@ function LoadFileYaml($filePath) {
 
 function LoadFileJson($filePath) {
     try {
-        return Get-Content $filePath | Out-String | ConvertFrom-Json -Depth 100
+        return Get-Content $filePath | Out-String | ConvertFrom-Json
     } catch {
         return $null
     }
@@ -126,7 +126,7 @@ function SaveFileJson($jsonObject, $filePath) {
 }
 
 function PrintJson($jsonObject) {
-    print($jsonObject | ConvertTo-Json -Depth 100)
+    print($jsonObject | ConvertTo-Json -Depth 10)
 }
 
 function ValidUuid($id) {
@@ -355,7 +355,7 @@ function ApiCall() {
     try {
         if ( $verbose ) {
             print("$method : $resource`n" +
-                "REQUEST_HEADERS : $($headers | ConvertTo-Json -Depth 100)`n" +
+                "REQUEST_HEADERS : $($headers | ConvertTo-Json -Depth 10)`n" +
                 "REQUEST_PAYLOAD : $data")
         }
         $ProgressPreference = "SilentlyContinue"  # Suppress UI progress indicator
@@ -367,14 +367,14 @@ function ApiCall() {
                 print("RESPONSE_MESSAGE: $r")
             }
         }
-        return ($r | ConvertFrom-Json -Depth 100)
+        return ($r | ConvertFrom-Json)
     }
     catch {
         if ( $verbose -or !$quiet) {
             warning("EXCEPTION_MESSAGE: $($_.Exception.Message)")
         }
         if ( $verbose ) {
-            print("EXCEPTION_RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 100)")
+            print("EXCEPTION_RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 10)")
         }
     }
 }
@@ -637,7 +637,7 @@ function UpsertAzRoleDefinition($x) {
     }
 
     # For the scope in the API call we can just use the 1st one
-    $body = $x | ConvertTo-Json -Depth 100
+    $body = $x | ConvertTo-Json -Depth 10
     $url = $az_url + $scope + "/providers/Microsoft.Authorization/roleDefinitions/"
     $r = ApiCall "PUT" ( $url + $roleId + "?api-version=2022-04-01") -data $body
     PrintJson $r
