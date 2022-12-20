@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "15"
+$global:prgver          = "16"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -335,11 +335,7 @@ function ClearTokenCache() {
 
 # =================== API FUNCTIONS =======================
 function ApiCall() {
-    param ( [string]$method, $resource, $headers, $data, [switch]$verbose, [switch]$quiet )
-    if ( $null -eq $headers ) {
-        $headers = @{}
-    }
-    
+    param ( [string]$method, $resource, $headers = @{}, $data, [switch]$verbose, [switch]$quiet )
     # Merge global and additionally called headers for both AZ and MG APIs
 	if ( $resource.StartsWith($az_url) ) {
         $global:az_headers.GetEnumerator() | ForEach-Object {
@@ -360,14 +356,25 @@ function ApiCall() {
         }
         $ProgressPreference = "SilentlyContinue"  # Suppress UI progress indicator
         $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method $method
+        $statusCode = $r.StatusCode
+        $statusDesc = $r.StatusDescription
+        $content = $r.Content
+        if ( ($content.GetType() -eq [byte[]]) -and ($content.Count -eq 0) ) {
+            # For null body responses, return these 2 status codes
+            $result = @{
+                "StatusCode" = $statusCode
+                "StatusDescription" = $statusDesc
+            }
+            $r = $result | ConvertTo-Json
+        }
         if ($verbose) {
             print("==== RESPONSE ================================`n" +
-                "RESPONSE_CODE: $($r.StatusCode)")
-            if ($null -ne $r) {
-                print("RESPONSE_MESSAGE: $r")
-            }
+                "RESPONSE_CODE: $($statusCode)`n" +
+                "RESPONSE_DESC: $($statusDesc)`n" +
+                "RESPONSE_CONTENT: $($content)")
         }
         return ($r | ConvertFrom-Json)
+        # Convert response to native object format for more idiomatic handling
     }
     catch {
         if ( $verbose -or !$quiet) {
