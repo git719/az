@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "20"
+$global:prgver          = "21"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -519,12 +519,11 @@ if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
 
 SetupConfDirectory
 
-if ( $args.Count -eq 1 ) {
-    # Process 1-argument requests
+if ( $args.Count -eq 1 ) {          # Process 1-argument requests
     $arg1 = $args[0]
     # These first 1-arg requests don't need for API tokens to be setup
     if ( $arg1 -eq "-cr" ) {
-        dumpCredentials
+        DumpCredentials
     } elseif ( $arg1 -eq "-tx" ) {
         ClearTokenCache
         exit
@@ -533,24 +532,31 @@ if ( $args.Count -eq 1 ) {
     SetupApiTokens
     if ( $arg1 -eq "-z" ) {
         DumpVariables
-    } else {
-        CreatePair $arg1
     }
-} elseif ( $args.Count -eq 2 ) {
-    # Process 2-argument requests
-    # There are no 2-arg requests for this utility
-} elseif ( $args.Count -eq 3 ) {
-    # Process 3-argument requests
+} elseif ( $args.Count -eq 2 ) {    # Process 2-argument requests
+    $arg1 = $args[0]
+    $arg2 = $args[1]
+    SetupApiTokens
+    if ( $arg1 -eq "-vs" ) {
+        DisplayPair $arg2
+    } elseif ( $arg1 -eq "-rm" ) {
+        DeletePair $arg2
+    } else {
+        PrintUsage
+    }
+} elseif ( $args.Count -eq 3 ) {    # Process 3-argument requests
     $arg1 = $args[0]
     $arg2 = $args[1]
     $arg3 = $args[2]
     if ( $arg1 -eq "-cri" ) {
         SetupInteractiveLogin $arg2 $arg3
+    } elseif ( $arg1 -eq "-up" ) {
+        SetupApiTokens
+        CreatePair $arg2 $arg3
     } else {
         PrintUsage
     }
-} elseif ( $args.Count -eq 4 ) {
-    # Process 4-argument requests
+} elseif ( $args.Count -eq 4 ) {    # Process 4-argument requests
     $arg1 = $args[0]
     $arg2 = $args[1]
     $arg3 = $args[2]
