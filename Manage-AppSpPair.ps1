@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "23"
+$global:prgver          = "24"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -530,6 +530,8 @@ if ( $args.Count -eq 1 ) {          # Process 1-argument requests
     } elseif ( $arg1 -eq "-tx" ) {
         ClearTokenCache
         exit
+    } elseif ( $arg1 -eq "-v" ) {
+        PrintUsage
     }
     # Remaining ones will need API tokens set up
     SetupApiTokens
