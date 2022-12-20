@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AzGroup"
-$global:prgver          = "17"
+$global:prgver          = "18"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -560,7 +560,7 @@ if ( $args.Count -eq 1 ) {          # Process 1-argument requests
     } else {
         PrintUsage    
     }
-} elseif ( $args.Count -eq 4 ) {    # Process 5-argument requests
+} elseif ( $args.Count -eq 5 ) {    # Process 5-argument requests
     $arg1 = $args[0]
     $arg2 = $args[1]
     $arg3 = $args[2]
