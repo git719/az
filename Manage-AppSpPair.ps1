@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "21"
+$global:prgver          = "22"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -400,9 +400,9 @@ function GetMgObject($t, $specifier) {
     }
     $r = ApiCall "GET" ($mg_url + $url) -headers $headers -quiet
     if ( $r.'@odata.count' -gt 0 ) {
-        return $true
+        return $r
     }
-    return $false
+    return $null
 }
 
 function CreateApp($displayName) {
@@ -445,7 +445,7 @@ function DisplayPair($specifier) {
     if ( ($null -ne $ap.'@odata.count') -and ($ap.'@odata.count' -gt 1) ) {
         print("APP: There's more than one App with this same displayName")
     } elseif ( ($null -ne $ap.'@odata.count') -and
-               ( ($ap.vlue[0].displayName -eq $specifier) -or ($ap.vlue[0].appId -eq $specifier) ) ) {
+               ( ($ap.value[0].displayName -eq $specifier) -or ($ap.value[0].appId -eq $specifier) ) ) {
         print("APP: Exists, and has Object Id = {0}" -f $ap.value[0].id)
     } else {
         print("APP: Does NOT exist")
@@ -454,7 +454,7 @@ function DisplayPair($specifier) {
     if ( ($null -ne $sp.'@odata.count') -and ($sp.'@odata.count' -gt 1) ) {
         print("SP : There's more than one SP with this same displayName")
     } elseif ( ($null -ne $sp.'@odata.count') -and
-               ( ($sp.vlue[0].displayName -eq $specifier) -or ($sp.vlue[0].appId -eq $specifier) ) ) {
+               ( ($sp.value[0].displayName -eq $specifier) -or ($sp.value[0].appId -eq $specifier) ) ) {
         print("SP : Exists, and has Object Id = {0}" -f $sp.value[0].id)
     } else {
         print("SP : Does NOT exist")
@@ -541,6 +541,8 @@ if ( $args.Count -eq 1 ) {          # Process 1-argument requests
         DisplayPair $arg2
     } elseif ( $arg1 -eq "-rm" ) {
         DeletePair $arg2
+    } elseif ( $arg1 -eq "-up" ) {
+        CreatePair $arg2
     } else {
         PrintUsage
     }
@@ -550,9 +552,6 @@ if ( $args.Count -eq 1 ) {          # Process 1-argument requests
     $arg3 = $args[2]
     if ( $arg1 -eq "-cri" ) {
         SetupInteractiveLogin $arg2 $arg3
-    } elseif ( $arg1 -eq "-up" ) {
-        SetupApiTokens
-        CreatePair $arg2 $arg3
     } else {
         PrintUsage
     }
