@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "22"
+$global:prgver          = "23"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -24,9 +24,9 @@ $global:oMap            = @{      # Hashtable to help generesize many of the fun
 # =================== HOUSEKEEPING FUNCTIONS =======================
 function PrintUsage() {
     die("$prgname Azure App/SP combo creation utility v$prgver`n" +
-        "    -vs DISPLAY_NAME|AppUUID          Display existing App/SP pair with given displayName or App UUID`n" +
-        "    -up DISPLAY_NAME                  Create App/SP pair with given displayName`n" +
-        "    -rm DISPLAY_NAME|AppUUID          Delete existing App/SP pair with given displayName or App UUID`n" +
+        "    -vs NAME|AppUUID                  Display existing App/SP pair with given displayName or App UUID`n" +
+        "    -rm NAME|AppUUID                  Delete existing App/SP pair with given displayName or App UUID`n" +
+        "    -up NAME                          Create App/SP pair with given displayName`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
@@ -251,12 +251,14 @@ function SetupApiTokens() {
     $global:mg_headers.Add("Content-Type", "application/json")
 
     # ==== Set up ARM AZ API token 
-    $global:az_scope = @($global:az_url + "/.default")
-    $global:az_token = GetToken $global:az_scope
-    $global:az_headers = @{"Authorization" = "Bearer " + $global:az_token}
-    $global:az_headers.Add("Content-Type", "application/json")
-
-    # You can set up other API tokens here ...
+    if ( Test-Path variable:global:az_url ) {
+        # If az_url not setup globally, then not needed/used by this util
+        $global:az_scope = @($global:az_url + "/.default")
+        $global:az_token = GetToken $global:az_scope
+        $global:az_headers = @{"Authorization" = "Bearer " + $global:az_token}
+        $global:az_headers.Add("Content-Type", "application/json")
+    }
+    # You can set up other API tokens belo ...
 }
 
 function GetToken($scopes) {
@@ -323,16 +325,16 @@ function ClearTokenCache() {
 function ApiCall() {
     param ( [string]$method, $resource, $headers = @{}, $data, [switch]$verbose, [switch]$quiet )
     # Merge global and additionally called headers for both AZ and MG APIs
-	if ( $resource.StartsWith($az_url) ) {
+	if ( (Test-Path variable:global:az_url) -and $resource.StartsWith($az_url) ) {
         $global:az_headers.GetEnumerator() | ForEach-Object {
             $headers.Add($_.Key, $_.Value)
         }
-	} elseif ( $resource.StartsWith($mg_url) ) {
+	} elseif ( (Test-Path variable:global:mg_url) -and $resource.StartsWith($mg_url) ) {
         # MG calls don't seem to use parameters
         $global:mg_headers.GetEnumerator() | ForEach-Object {
             $headers.Add($_.Key, $_.Value)    
         }
-	}
+	} # Future: Setup other optional API url header updates here
 
     try {
         if ( $verbose ) {
@@ -507,9 +509,10 @@ function CreatePair($displayName) {
     $new_app = CreateApp $displayName
     $secret = CreateAppSecret $new_app.id
     $new_sp = CreateSp $new_app.appId
-    print("`nAPP/SP = $($new_app.DisplayName)")
-    print("APPID  = $($new_sp.appId)")
-    print("SECRET = `"$secret`" (PROTECT ACCORDINGLY!)`n")
+    print("`nAPP/SP   = $($new_app.DisplayName)")
+    print("AppId    = $($new_sp.appId)")
+    print("TenantId = $($tenant_id)")
+    print("Secret   = `"$secret`" (PROTECT ACCORDINGLY!)`n")
 }
 
 # =================== MAIN ===========================
