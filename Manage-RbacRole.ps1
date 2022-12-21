@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "17"
+$global:prgver          = "18"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -557,7 +557,8 @@ function GetAzRoleAssignment($roleDefId, $principalId, $scope) {
     $r = ApiCall "GET" ($url) -quiet
     if ( $null -ne $r.value ) {
         foreach ($i in $r.value) {
-            if ( $i.properties.roleDefinitionId = $target ) {
+            $roleId = LastElem $i.properties.roleDefinitionId "/"
+            if ( $roleId -eq $target ) {
                 return $i  # We found it
             }
         }
@@ -843,7 +844,8 @@ function CompareSpecfile($specfile) {
     PrintAzObject $t $x
     print("`n================ AZURE ===================")
     if ( $t -eq "a" ) {
-        $r = GetAzRoleAssignment($x.properties.roleDefinitionId, $x.principalId, $x.scope)
+        $xp = $x.properties
+        $r = GetAzRoleAssignment $xp.roleDefinitionId $xp.principalId $xp.scope
         if ($null -eq $r) {
             print("This role assignment does NOT exist in this Azure tenant.")
         } else {
@@ -1054,9 +1056,11 @@ function GetObjectFromFile($specfile) {
     }
 
     # We seem to have a would-be object from the file
-    if ( $null -ne $x.properties.roleName ) {   
+    if ( $null -ne $x.properties.roleName ) {
+        # It's a role definition 
         return $ft, "d", $x   # Type can then neatly be used with other generized $oMap functions
     } elseif ( $null -ne $x.properties.roleDefinitionId ) {
+        # It's a role assignment 
         return $ft, "a", $x
     } else {
         return $null, $null, $null
