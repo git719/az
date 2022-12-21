@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-SpAuth"
-$global:prgver          = "26"
+$global:prgver          = "27"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -18,15 +18,7 @@ $global:mg_token        = @{}
 $global:mg_headers      = @{}
 
 # =================== HOUSEKEEPING FUNCTIONS =======================
-function die($msg) {
-    Write-Host -ForegroundColor Yellow $msg ; exit
-}
-
-function print($msg) {
-    Write-Host ($msg)
-}
-
-function print_usage() {
+function PrintUsage() {
     die("$prgname Azure SP API permissions utility v$prgver`n" +
         "    SP_OBJECT_UUID                        Display Service Principal API permissions`n" +
         "    -a oAuth2PermissionGrant_object.json  Create oAuth2PermissionGrant based on file`n" +
@@ -42,7 +34,19 @@ function print_usage() {
         "    -tx                                   Delete MSAL local session cache")
 }
 
-function setup_confdir() {
+function die($msg) {
+    Write-Host -ForegroundColor Yellow $msg ; exit
+}
+
+function warning($msg) {
+    Write-Host -ForegroundColor Yellow $msg
+}
+
+function print($msg) {
+    Write-Host ($msg)
+}
+
+function SetupConfDirectory() {
     # Create the utility's config directory
     $homeDir = $null
     if ($IsWindows -or $ENV:OS) {
@@ -54,7 +58,7 @@ function setup_confdir() {
         die("Fatal. Missing USERPROFILE or HOME environment variable.")
     }
     $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
-    if (-not (file_exist $global:confdir)) {
+    if (-not (FileExist $global:confdir)) {
         try {
             New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
         }
@@ -64,49 +68,62 @@ function setup_confdir() {
     }
 }
 
-function file_exist($filePath) {
+function FileExist($filePath) {
     return Test-Path -LiteralPath $filePath
 }
 
-function file_size($filePath) {
+function FileSize($filePath) {
     return (Get-Item -Path $filePath).Length
 }
 
-function remove_file($filePath) {
+function RemoveFile($filePath) {
     Remove-Item $filePath
 }
 
-function load_file_yaml($filePath) {
+function LoadFileYaml($filePath) {
     # Read/load/decode given filePath as some YAML object
-    if ( file_exist $filePath ) {
+    if ( FileExist $filePath ) {
         [string[]]$fileContent = Get-Content $filePath
         $content = ''
         foreach ($line in $fileContent) {
             $content = $content + "`n" + $line
         }
-        return ConvertFrom-YAML $content
+        try {
+            return ConvertFrom-YAML $content
+        } catch {
+            return $null
+        }
     }
 }
 
-function load_file_json($filePath) {
-    return Get-Content $filePath | Out-String | ConvertFrom-Json
+function LoadFileJson($filePath) {
+    try {
+        return Get-Content $filePath | Out-String | ConvertFrom-Json
+    } catch {
+        return $null
+    }
 }
 
-function save_file_json($jsonObject, $filePath) {
+function SaveFileJson($jsonObject, $filePath) {
     # Save given JSON object to given filePath
     $jsonObject | ConvertTo-Json -depth 100 | Out-File $filePath  
 }
 
-function print_json($jsonObject) {
-    print($jsonObject | ConvertTo-Json)
+function PrintJson($jsonObject) {
+    print($jsonObject | ConvertTo-Json -Depth 10)
 }
 
-function valid_uuid($id) {
+function ValidUuid($id) {
     return [guid]::TryParse($id, $([ref][guid]::Empty))
 }
 
+function LastElem($s, $splitter) {
+    $Split = $s -split $splitter   # Split the string
+	return $Split[-1]              # Return last element
+}
+
 # =================== LOGIN FUNCTIONS =======================
-function dump_variables() {
+function DumpVariables() {
     # Dump essential global variables
     print("{0,-16} {1}" -f "tenant_id:", $global:tenant_id)
     if ( $global:interactive.ToString().ToLower() -eq "true" ) {
@@ -138,10 +155,10 @@ function dump_variables() {
     exit
 }
 
-function dump_credentials() {
+function DumpCredentials() {
     # Dump credentials file
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
-    $creds = load_file_yaml $creds_file
+    $creds = LoadFileYaml $creds_file
     if ( $null -eq $creds ) {
         die("Error loading $creds_file`n" +
             "Please rerun program using '-cr' or '-cri' option to specify credentials.")
@@ -157,12 +174,12 @@ function dump_credentials() {
     exit
 }
 
-function setup_interactive_login($tenant_id, $username) {
+function SetupInteractiveLogin($tenant_id, $username) {
     print("Clearing token cache.")
-    clear_token_cache
+    ClearTokenCache
     # Set up credentials file for interactive login
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
-    if ( -not (valid_uuid $tenant_id) ) {
+    if ( -not (ValidUuid $tenant_id) ) {
         die("Error. TENANT_ID is an invalid UUID.")
     }
     $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "username:", $username, "interactive:", "true"
@@ -170,15 +187,15 @@ function setup_interactive_login($tenant_id, $username) {
     print("$creds_file : Updated credentials")
 }
 
-function setup_automated_login($tenant_id, $client_id, $secret) {
+function SetupAutomatedLogin($tenant_id, $client_id, $secret) {
     print("Clearing token cache.")
-    clear_token_cache
+    ClearTokenCache
     # Set up credentials file for client_id + secret login
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
-    if ( -not (valid_uuid $tenant_id) ) {
+    if ( -not (ValidUuid $tenant_id) ) {
         die("Error. TENANT_ID is an invalid UUID.")
     }
-    if ( -not (valid_uuid $client_id) ) {
+    if ( -not (ValidUuid $client_id) ) {
         die("Error. CLIENT_ID is an invalid UUID.")
     }
     $creds_text = "{0,-14} {1}`n{2,-14} {3}`n{4,-14} {5}" -f "tenant_id:", $tenant_id, "client_id:", $client_id, "client_secret:", $secret
@@ -186,21 +203,21 @@ function setup_automated_login($tenant_id, $client_id, $secret) {
     print("$creds_file : Updated credentials")
 }
 
-function setup_credentials() {
+function SetupCredentials() {
     # Read credentials file and set up authentication parameters as global variables
     $creds_file = Join-Path -Path $global:confdir -ChildPath "credentials.yaml"
-    if ( (-not (file_exist $creds_file)) -or ((file_size $creds_file) -lt 1) ) {
+    if ( (-not (FileExist $creds_file)) -or ((FileSize $creds_file) -lt 1) ) {
         die("Missing credentials file: '$creds_file'`n",
             "Please rerun program using '-cr' or '-cri' option to specify credentials.")
     }
-    $creds = load_file_yaml $creds_file
+    $creds = LoadFileYaml $creds_file
     $global:tenant_id = $creds["tenant_id"]
-    if ( -not (valid_uuid $global:tenant_id) ) {
+    if ( -not (ValidUuid $global:tenant_id) ) {
         die("[$creds_file] tenant_id '$global:tenant_id' is not a valid UUID")
     }
     if ( $null -eq $creds["interactive"] ) {
         $global:client_id = $creds["client_id"]
-        if ( -not (valid_uuid $global:client_id) ) {
+        if ( -not (ValidUuid $global:client_id) ) {
             die("[$creds_file] client_id '$global:client_id' is not a valid UUID.")
         }
         $global:client_secret = $creds["client_secret"]
@@ -213,9 +230,9 @@ function setup_credentials() {
     }
 }
 
-function setup_api_tokens() {
-    # Initialize necessary global variables, acquire all API tokens, and set them up for use
-    setup_credentials  # Sets up tenant ID, client ID, authentication method, etc
+function SetupApiTokens() {
+    # Initialize necessary variables, acquire all API tokens, and set them up to be used GLOBALLY
+    SetupCredentials  # Sets up tenant ID, client ID, authentication method, etc
     $global:authority_url = "https://login.microsoftonline.com/" + $global:tenant_id
 
     # This functions allows this utility to call multiple APIs, such as the Azure Resource Management (ARM)
@@ -227,14 +244,20 @@ function setup_api_tokens() {
     $global:mg_scope = @($global:mg_url + "/.default")  # The scope is a list of strings
     # Appending '/.default' allows using all static and consented permissions of the identity in use
     # See https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-v1-app-scopes
-    $global:mg_token = get_token $global:mg_scope     # Note, these are 2 global variable we are updating!
+    $global:mg_token = GetToken $global:mg_scope     # Note, these are 2 global variable we are updating!
     $global:mg_headers = @{"Authorization" = "Bearer " + $global:mg_token}
     $global:mg_headers.Add("Content-Type", "application/json")
+
+    # ==== Set up ARM AZ API token 
+    $global:az_scope = @($global:az_url + "/.default")
+    $global:az_token = GetToken $global:az_scope
+    $global:az_headers = @{"Authorization" = "Bearer " + $global:az_token}
+    $global:az_headers.Add("Content-Type", "application/json")
 
     # You can set up other API tokens here ...
 }
 
-function get_token($scopes) {
+function GetToken($scopes) {
     # See https://github.com/AzureAD/MSAL.PS for more details on these cmdlets
     # Why does this module cache the 'client apps'? It should just be caching accounts + tokens??
 
@@ -289,55 +312,68 @@ function get_token($scopes) {
     # TO VIEW TOKEN: Install-Module JWTDetails and cat $token | Get-JWTDetails
 }
 
-function clear_token_cache() {
+function ClearTokenCache() {
     Clear-MsalTokenCache            # Remove cached token from memory
     Clear-MsalTokenCache -FromDisk  # and from disk
 }
 
 # =================== API FUNCTIONS =======================
-function api_call() {
-    param ( [string]$method, $resource, $headers, $params, $data, [switch]$verbose, [switch]$silent )
-    if ( $null -eq $headers ) {
-        $headers = @{}
-    }
-    $global:mg_headers.GetEnumerator() | ForEach-Object {
-        $headers.Add($_.Key, $_.Value)    # Append global headers
-    }
+function ApiCall() {
+    param ( [string]$method, $resource, $headers = @{}, $data, [switch]$verbose, [switch]$quiet )
+    # Merge global and additionally called headers for both AZ and MG APIs
+	if ( $resource.StartsWith($az_url) ) {
+        $global:az_headers.GetEnumerator() | ForEach-Object {
+            $headers.Add($_.Key, $_.Value)
+        }
+	} elseif ( $resource.StartsWith($mg_url) ) {
+        # MG calls don't seem to use parameters
+        $global:mg_headers.GetEnumerator() | ForEach-Object {
+            $headers.Add($_.Key, $_.Value)    
+        }
+	}
+
     try {
         if ( $verbose ) {
-            print("==== REQUEST ================================`n" +
-                "$method : $resource`n" +
-                "PARAMS : $($params | ConvertTo-Json -Depth 100)`n" +
-                "HEADERS : $($headers | ConvertTo-Json -Depth 100)`n" +
-                "PAYLOAD : $data")
+            print("$method : $resource`n" +
+                "REQUEST_HEADERS : $($headers | ConvertTo-Json -Depth 10)`n" +
+                "REQUEST_PAYLOAD : $data")
         }
-        $ProgressPreference = "SilentlyContinue"  # Don't show progress in the command prompt UI
-        switch ( $method.ToUpper() ) {
-            "GET"       { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Method 'GET' ; break }
-            "POST"      { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'POST' ; break }
-            "DELETE"    { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'DELETE' ; break }
-            "PATCH"     { $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method 'PATCH' ; break }
+        $ProgressPreference = "SilentlyContinue"  # Suppress UI progress indicator
+        $r = Invoke-WebRequest -Headers $headers -Uri $resource -Body $data -Method $method
+        $statusCode = $r.StatusCode
+        $statusDesc = $r.StatusDescription
+        $content = $r.Content
+        if ( ($content.GetType() -eq [byte[]]) -and ($content.Count -eq 0) ) {
+            # For null body responses, return these 2 status codes
+            $result = @{
+                "StatusCode" = $statusCode
+                "StatusDescription" = $statusDesc
+            }
+            $r = $result | ConvertTo-Json
         }
         if ($verbose) {
             print("==== RESPONSE ================================`n" +
-                "STATUS_CODE: $($r.StatusCode)`n" +
-                "RESPONSE $($r | ConvertFrom-Json -Depth 100)")
+                "RESPONSE_CODE: $($statusCode)`n" +
+                "RESPONSE_DESC: $($statusDesc)`n" +
+                "RESPONSE_CONTENT: $($content)")
         }
         return ($r | ConvertFrom-Json)
+        # Convert response to native object format for more idiomatic handling
     }
     catch {
-        if ( $verbose -or !$silent) {
-            print("==== EXCEPTION ================================`n" +
-                "MESSAGE: $($_.Exception.Message)`n" +
-                "RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 100)")
+        if ( $verbose -or !$quiet) {
+            warning("EXCEPTION_MESSAGE: $($_.Exception.Message)")
+        }
+        if ( $verbose ) {
+            print("EXCEPTION_RESPONSE: $($_.Exception.Response | ConvertTo-Json -Depth 10)")
         }
     }
 }
 
 # =================== PROGRAM FUNCTIONS =======================
-function create_skeleton() {
+function CreateSkeleton() {
     $skeleton = Join-Path -Path $pwd -ChildPath "oAuth2PermissionGrant_object.json"
-    if ( file_exist $skeleton ) {
+    if ( FileExist $skeleton ) {
         die("Error. File `"$skeleton`" already exists.")
     }
     $content = @{
@@ -346,20 +382,20 @@ function create_skeleton() {
         "resourceId"  = "API_SP_UUID"
         "scope"       = "space-separated claims list like openid profile"
     }
-    save_file_json $content $skeleton
+    SaveFileJson $content $skeleton
     exit
 }
 
-function show_sp_perms($id) {
+function ShowSpPerms($id) {
     # Show SP MS Graph API permissions
-    $r = api_call "GET" ($mg_url + "/v1.0/servicePrincipals/" + $id + "/oauth2PermissionGrants")
+    $r = ApiCall "GET" ($mg_url + "/v1.0/servicePrincipals/" + $id + "/oauth2PermissionGrants")
     $temp = $r.value | ConvertTo-Json
     if ( $null -eq $temp ) {
         die("Service Principal `"$id`" has no API permissions.")
     }
     foreach ($api in $r.value) {
         $api_name = "Unknown"
-        $r2 = api_call "GET" ($mg_url + "/v1.0/servicePrincipals/" + $api.resourceId)
+        $r2 = ApiCall "GET" ($mg_url + "/v1.0/servicePrincipals/" + $api.resourceId)
         if ( !$null -eq $r2.appDisplayName) {
             $api_name = $r2.appDisplayName
             $claims = -Split $api.scope.Trim()
@@ -370,103 +406,103 @@ function show_sp_perms($id) {
     }
 }
 
-function valid_oauth_id($id) {
+function ValidOauthId($id) {
     # Is this a valid oAuth2PermissionGrant ID?
-    $r = api_call "GET" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -silent
+    $r = ApiCall "GET" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -silent
     if ( $null -eq $r ) {
         return $false
     }
     return $true
 }
 
-function show_perms($id) {
+function ShowPerms($id) {
     # Show oAuth2PermissionGrant permissions
-    $r = api_call "GET" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    $r = ApiCall "GET" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
     if ( $null -eq $r.error ) {
-        print_json($r)
+        PrintJson($r)
     } else {
         die($r)
     }
 }
 
-function update_perms($id, $claims) {
-    if ( valid_oauth_id $id ) {  # Ensure this is legit oAuth2Perms id
+function UpdatePerms($id, $claims) {
+    if ( ValidOauthId $id ) {  # Ensure this is legit oAuth2Perms id
         # Update oAuth2Perms
         $payload = @{ "scope" = $claims } | ConvertTo-Json
-        $r = api_call "PATCH" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -data $payload
+        $r = ApiCall "PATCH" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id) -data $payload
         if ( $null -eq $r ) {
-            print_json($r)
+            PrintJson($r)
         }
     }
 }
 
-function delete_perms($id) {
+function deletePerms($id) {
     # Delete oAuth2Perms
-    $r = api_call "DELETE" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
+    $r = ApiCall "DELETE" ($mg_url + "/v1.0/oauth2PermissionGrants/" + $id)
     if ( $null -eq $r ) {
-        print_json($r)
+        PrintJson($r)
     }
 }
 
-function create_perms($filePath) {
+function CreatePerms($filePath) {
     # Create oAuth2Perms
-    $payload = load_file_json $filePath | ConvertTo-Json
-    $r = api_call "POST" ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
+    $payload = LoadFileJson $filePath | ConvertTo-Json
+    $r = ApiCall "POST" ($mg_url + "/v1.0/oauth2PermissionGrants") -data $payload
     if ( $null -eq $r ) {
-        print_json($r)
+        PrintJson($r)
     }
 }
 
 # =================== MAIN ===========================
 if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
-    print_usage  # Don't accept less than 1 or more than 4 arguments
+    PrintUsage  # Don't accept less than 1 or more than 4 arguments
 }
 
-setup_confdir
+SetupConfDirectory
 
 if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg1 = $args[0]
     # These 1-arg requests don't need for API tokens to be setup
     if ( $arg1 -eq "-cr" ) {
-        dump_credentials
+        DumpCredentials
     } elseif ( $arg1 -eq "-tx" ) {
-        clear_token_cache
+        ClearTokenCache
         exit
     } elseif ( $arg1 -eq "-k" ) {
-        create_skeleton
+        CreateSkeleton
     }
     # The rest do need API tokens set up
-    setup_api_tokens
-    if ( valid_uuid $arg1 ) {
-        show_sp_perms $arg1 
+    SetupApiTokens
+    if ( ValidUuid $arg1 ) {
+        ShowSpPerms $arg1 
     } elseif ( $arg1 -eq "-z" ) {
-        dump_variables
-    } elseif ( valid_oauth_id $arg1 ) {
-        show_perms $arg1
+        DumpVariables
+    } elseif ( ValidOauthId $arg1 ) {
+        ShowPerms $arg1
     } else {
-        print_usage
+        PrintUsage
     }
 } elseif ( $args.Count -eq 2 ) {  # Process 2-argument requests
     $arg1 = $args[0]
     $arg2 = $args[1]
-    setup_api_tokens
+    SetupApiTokens
     if ( $arg1 -eq "-d" ) {
-        delete_perms $arg2
-    } elseif ( ( $arg1 -eq "-a" ) -and ( file_exist $arg2 ) ) {
-        create_perms $arg2
-    } elseif ( valid_oauth_id $arg1 ) {
-        update_perms $arg1 $arg2
+        DeletePerms $arg2
+    } elseif ( ( $arg1 -eq "-a" ) -and ( FileExist $arg2 ) ) {
+        CreatePerms $arg2
+    } elseif ( ValidOauthId $arg1 ) {
+        UpdatePerms $arg1 $arg2
     } else {
-        print_usage
+        PrintUsage
     }
 } elseif ( $args.Count -eq 3 ) {  # Process 3-argument requests
     $arg1 = $args[0]
     $arg2 = $args[1]
     $arg3 = $args[2]
     if ( $arg1 -eq "-cri" ) {
-        setup_interactive_login $arg2 $arg3
+        SetupInteractiveLogin $arg2 $arg3
     } else {
-        print_usage
+        PrintUsage
     }
 } elseif ( $args.Count -eq 4 ) {  # Process 4-argument requests
     $arg1 = $args[0]
@@ -474,10 +510,10 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
     $arg3 = $args[2]
     $arg4 = $args[3]
     if ( $arg1 -eq "-cr" ) {
-        setup_automated_login $arg2 $arg3 $arg4
+        SetupAutomatedLogin $arg2 $arg3 $arg4
     } else {
-        print_usage
+        PrintUsage
     }
 } else {
-    print_usage
+    PrintUsage
 }
