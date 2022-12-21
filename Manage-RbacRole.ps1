@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "16"
+$global:prgver          = "17"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -34,13 +34,14 @@ $global:oMap            = @{      # Hashtable to help generesize many of the fun
 function PrintUsage() {
     die("$prgname Azure RBAC role definition & assignment manager v$prgver`n" +
         "    UUID                              List definition or assignment given its UUID`n" +
+        "    -vs SPECFILE                      Compare specfile to what's in Azure`n" +
         "    -rm UUID|SPECFILE|`"role name`"     Delete definition or assignment based on specifier`n" +
         "    -up SPECFILE                      Create or update definition or assignment based on specfile (YAML or JSON)`n" +
         "    -kd[j]                            Create a skeleton role-definition.yaml specfile (JSON option)`n" +
         "    -ka[j]                            Create a skeleton role-assignment.yaml specfile (JSON option)`n" +
-        "    -d[j] [SPECIFIER]                 List all role definitions, with filter by SPECIFIER and JSON options`n" +
-        "    -a[j] [SPECIFIER]                 List all role assignments, with filter by SPECIFIER and JSON options`n" +
-        "    -s[j] SPECIFIER                   List all subscriptions, with filter by SPECIFIER and JSON options`n" +
+        "    -d[j] [SPECIFIER]                 List all role definitions, with SPECIFIER filter and JSON options`n" +
+        "    -a[j] [SPECIFIER]                 List all role assignments, with SPECIFIER filter and JSON options`n" +
+        "    -s[j] [SPECIFIER]                 List all subscriptions, with SPECIFIER filter and JSON options`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
@@ -830,6 +831,38 @@ function DeleteObject($specifier) {
     }
 }
 
+function CompareSpecfile($specfile) {
+    if ( -not (FileExist $specfile) ) {
+        die("File $specfile does not exist.")
+    }
+    $ft, $t, $x = GetObjectFromFile $specfile
+    if ( ($null -eq $ft) -or ($null -eq $t) -or ($null -eq $x) ) {
+        die("Files does not appear to be a valid role definition or assignment specfile.")
+    }
+    print("`n================ SPECFILE ================")
+    PrintAzObject $t $x
+    print("`n================ AZURE ===================")
+    if ( $t -eq "a" ) {
+        $r = GetAzRoleAssignment($x.properties.roleDefinitionId, $x.principalId, $x.scope)
+        if ($null -eq $r) {
+            print("This role assignment does NOT exist in this Azure tenant.")
+        } else {
+            PrintAzObject "a" $r
+        }
+    } elseif ( $t -eq "d" ) {
+        $r = GetAzObjectByName "d" $x.properties.roleName
+        if ($null -eq $r) {
+            print("This role definition does NOT exist in this Azure tenant.")
+        } else {
+            PrintAzObject "d" $r
+        }
+    } else {
+        print("Oh, oh. Unclear what object type this is.")
+    }
+    print("")
+    exit
+}
+
 function PrintAzRoleDefinition($object) {
 	# Print role definition object in YAML format
 	if ( $null -eq $object ) {
@@ -1004,29 +1037,45 @@ function ShowObject($id) {
     exit
 }
 
-function UpsertAzObject($specfile) {
-    # Create or Update role definition or assignment
-    if ( -not (FileExist $specfile) ) {
-        die("File $specfile doesn't exists.")
-    }
+function GetObjectFromFile($specfile) {
+    # Returns an array of 3 values: [0] = File format type, [1] = Object type, and [2] = Object itself
+    
     # Let's pretend it's a YAML file
     $x = LoadFileYaml $specfile
+    $ft = "YAML"
     if ( $null -eq $x ) {
         # That didn't work, so let's try JSON
         $x = LoadFileJson $specfile
+        $ft = "JSON"
         if ( $null -eq $x ) {
-            die("$specfile is not a valid YAML or JSON file.")
+            $x = $null
+            $ft = $null
         }
     }
+
     # We seem to have a would-be object from the file
-    if ( $null -ne $x.properties.roleName ) {
-        # It's a Role Definition
-        UpsertAzRoleDefinition $x
+    if ( $null -ne $x.properties.roleName ) {   
+        return $ft, "d", $x   # Type can then neatly be used with other generized $oMap functions
     } elseif ( $null -ne $x.properties.roleDefinitionId ) {
-        # It's a Role Assignment
+        return $ft, "a", $x
+    } else {
+        return $null, $null, $null
+    }
+}
+
+function UpsertAzObject($specfile) {
+    # Create or Update role definition or assignment
+    if ( -not (FileExist $specfile) ) {
+        die("File $specfile does not exist.")
+    }
+
+    $ft, $t, $x = GetObjectFromFile $specfile     # $ft is now used here
+    if ( ($null -ne $t) -and ($t -eq "d") ) {
+        UpsertAzRoleDefinition $x
+    } elseif ( ($null -ne $t) -and ($t -eq "a") ) {
         CreateAzRoleAssignment $x
     } else {
-        die("Files does not appear to be a valid role definition or assignment file.")
+        die("File does not appear to be a valid role definition or assignment specfile.")
     }
 }
 
@@ -1071,7 +1120,9 @@ if ( $args.Count -eq 1 ) {        # Process 1-argument requests
 } elseif ( $args.Count -eq 2 ) {  # Process 2-argument requests
     $arg1 = $args[0] ; $arg2 = $args[1]
     SetupApiTokens
-    if ( $arg1 -eq "-rm" ) {
+    if ( $arg1 -eq "-vs" ) {
+        CompareSpecfile $arg2
+    } elseif ( $arg1 -eq "-rm" ) {
         DeleteObject $arg2
     } elseif ( $arg1 -eq "-up" ) {
         UpsertAzObject $arg2  # Create or Update role definition or assignment
