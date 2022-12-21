@@ -5,7 +5,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "18"
+$global:prgver          = "20"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -959,7 +959,7 @@ function PrintAzRoleAssignment($object) {
 	    "Group"             {  $pnName = GetObjectName "g" $pnId ; break }
         default             {  $pnType = "???" ; $pnName = "???" ; break }
     }
-    print("  {0,-17} {1}  # {3} displayName = {3}" -f "principalId:", $pnId, $pnType, $pnName)
+    print("  {0,-17} {1}  # {2} displayName = {3}" -f "principalId:", $pnId, $pnType, $pnName)
 
     # If scope is a subscription print its name as a comment at end of line
     if ( $x.scope.StartsWith("/subscriptions") ) {
