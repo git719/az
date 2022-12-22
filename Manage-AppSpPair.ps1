@@ -1,11 +1,8 @@
 # Create-AppSpPair.ps1
 
-#Requires -Modules powershell-yaml
-#Requires -Modules MSAL.PS
-
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "24"
+$global:prgver          = "25"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -46,6 +43,16 @@ function warning($msg) {
 
 function print($msg) {
     Write-Host ($msg)
+}
+
+function InstallPsModule($module) {
+    try {
+        if (-not (Get-Module -ListAvailable -Name $module)) {
+            Install-Module $module -Scope CurrentUser -Force -AllowClobber
+        }
+    } catch {
+        warning("Unable to isntall required module: $module. $_")
+    }
 }
 
 function SetupConfDirectory() {
@@ -519,6 +526,9 @@ function CreatePair($displayName) {
 if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
     PrintUsage  # Don't accept less than 1 or more than 4 arguments
 }
+
+InstallPsModule "powershell-yaml"
+InstallPsModule "MSAL.PS"
 
 SetupConfDirectory
 

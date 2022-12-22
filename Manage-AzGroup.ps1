@@ -1,11 +1,8 @@
 # Manage-AzGroup.ps1
 
-#Requires -Modules powershell-yaml
-#Requires -Modules MSAL.PS
-
 # Global variables
 $global:prgname         = "Manage-AzGroup"
-$global:prgver          = "18"
+$global:prgver          = "19"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -55,6 +52,16 @@ function warning($msg) {
 
 function print($msg) {
     Write-Host ($msg)
+}
+
+function InstallPsModule($module) {
+    try {
+        if (-not (Get-Module -ListAvailable -Name $module)) {
+            Install-Module $module -Scope CurrentUser -Force -AllowClobber
+        }
+    } catch {
+        warning "Unable to isntall required module: $module. $_"
+    }
 }
 
 function SetupConfDirectory() {
@@ -504,6 +511,9 @@ function CreateAzGroup($displayName, $description = "", $owner = "", $assignable
 if ( ($args.Count -lt 1) -or ($args.Count -gt 5) ) {
     PrintUsage  # Don't accept less than 1 or more than 5 arguments
 }
+
+InstallPsModule "powershell-yaml"
+InstallPsModule "MSAL.PS"
 
 SetupConfDirectory
 
