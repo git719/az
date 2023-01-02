@@ -2,7 +2,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "21"
+$global:prgver          = "29"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -78,9 +78,7 @@ function SetupConfDirectory() {
     } else {
         $homeDir = (Get-ChildItem -Path Env:HOME).value   # PowerShell in a non-Windows system
     }
-    if ($null -eq $homeDir) {
-        die("Fatal. Missing USERPROFILE or HOME environment variable.")
-    }
+    if ($null -eq $homeDir) { die("Fatal. Missing USERPROFILE or HOME environment variable.") }
     $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
     if (-not (FileExist $global:confdir)) {
         try {
@@ -109,23 +107,15 @@ function LoadFileYaml($filePath) {
     if ( FileExist $filePath ) {
         [string[]]$fileContent = Get-Content $filePath
         $content = ''
-        foreach ($line in $fileContent) {
-            $content = $content + "`n" + $line
-        }
-        try {
-            return ConvertFrom-YAML $content
-        } catch {
-            return $null
-        }
+        foreach ($line in $fileContent) { $content = $content + "`n" + $line }
+        try { return ConvertFrom-YAML $content }
+        catch { return $null }
     }
 }
 
 function LoadFileJson($filePath) {
-    try {
-        return Get-Content $filePath | Out-String | ConvertFrom-Json
-    } catch {
-        return $null
-    }
+    try { return Get-Content $filePath | Out-String | ConvertFrom-Json } 
+    catch { return $null }
 }
 
 function SaveFileJson($jsonObject, $filePath) {
@@ -300,9 +290,7 @@ function GetToken($scopes) {
                 TenantId = $global:tenant_id;
                 ClientId = $ps_client_id
             }
-            if ( $null -eq $app ) {
-                die("Error getting Public client app.")
-            }
+            if ( $null -eq $app ) { die("Error getting Public client app.") }
             # Cache this client app for future sessions
             Enable-MsalTokenCacheOnDisk $app -WarningAction SilentlyContinue
             Add-MsalClientApplication $app
@@ -318,9 +306,7 @@ function GetToken($scopes) {
                 ClientId = $global:client_id;
                 ClientSecret = $global:client_secret
             }
-            if ( $null -eq $app ) {
-                die("Error getting Confidential client app.")
-            }
+            if ( $null -eq $app ) { die("Error getting Confidential client app.") }
             # Cache this client app for future sessions
             Enable-MsalTokenCacheOnDisk $app -WarningAction SilentlyContinue
             Add-MsalClientApplication $app
@@ -417,27 +403,17 @@ function GetAllAzObjects($t) {
     switch ( $t ) {
         { "d", "a" -eq $_ } {
             # Role definitions and assignments
+            $scopes = GetAzRbacScopes  # Look for object under all the RBAC hierarchy scopes
             $uniqueIds = @()
-            $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id
-            $url += "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-            $r = ApiCall "GET" ($url) -quiet
-            if ( $null -ne $r.value ) {
-                $oList = $r.value
-                foreach ($i in $r.value) {
-                    $uniqueIds += $i.name  # Keep track of each unique object we're adding to the growing list
-                }
-            }
-            # Finally, alse get all the objects under each subscription
-            foreach ($subId in GetSubIds) {
-                $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
+            foreach ($scope in $scopes) {
+                $url = $az_url + $scope + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
                 $r = ApiCall "GET" ($url) -quiet
                 if ( $null -ne $r.value ) {
                     foreach ($i in $r.value) {
-                        if ( $uniqueIds -Match $i.name) {
-                            continue  # Unfortunately objects repeat down the subscription hierarchy, so we avoid them here
-                        }
-                        $olist += $i
-                        $uniqueIds += $i.name
+                        # Unfortunately objects repeat down the subscription hierarchy, so we avoid repeats with below check
+                        if ( $uniqueIds -Match $i.name) { continue }
+                        $olist += $i           # Keep growing list
+                        $uniqueIds += $i.name  # Keep track of each unique object we're adding to the growing list
                     }
                 }
             }
@@ -458,27 +434,13 @@ function GetAzObjectById($t, $id) {
 	# Retrieve Azure object by UUID
 	switch ( $t ) {
         { "a", "d" -eq $_ } {
-            # Search for the role definitions at the tenant level
-            $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-            $r = ApiCall "GET" ($url) -quiet
-            if ( $null -ne $r.value ) {
-                foreach ($i in $r.value) {
-                    if ( $i.name -eq $id ) {  # The 'name' attribute is actually what we're looking for
-                        return $i  # Return with object, as soon as we find it
-                    }
-                }
-            }
-            # Finally, search for it under each subscription
-            foreach ($subId in GetSubIds) {
-                $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
+            $scopes = GetAzRbacScopes  # Look for object under all the RBAC hierarchy scopes
+            # Add null string below to represent the root "/" scope, else we miss any role assignments for it
+            $scopes += ""
+            foreach ($scope in $scopes) {
+                $url = $az_url + $scope + "/providers/Microsoft.Authorization/" + $oMap[$t] + "/" + $id + "?api-version=2022-04-01"
                 $r = ApiCall "GET" ($url) -quiet
-                if ( $null -ne $r.value ) {
-                    foreach ($i in $r.value) {
-                        if ( $i.name -eq $id ) {
-                            return $i  # Again, return as soon as we find it
-                        }
-                    }
-                }
+                if ( ($null -ne $r) -and ($null -ne $r.id) ) { return $r } # Return as soon as we find it
             }
         }
         "s" {
@@ -503,25 +465,15 @@ function GetAzObjectByName($t, $name) {
             return $null # Role assignments don't have a displayName
         }
         "d" {
-            # Search for the role definitions at the tenant level
-            $url = $az_url + "/providers/Microsoft.Management/managementGroups/" + $global:tenant_id + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
-            $r = ApiCall "GET" ($url) -quiet
-            if ( $null -ne $r.value ) {
-                foreach ($i in $r.value) {
-                    if ( $i.properties.roleName -eq $name ) {
-                        return $i  # Return with object, as soon as we find it
-                    }
-                }
-            }
-            # Finally, search for it under each subscription
-            foreach ($subId in GetSubIds) {
-                $url = $az_url + "/subscriptions/" + $subId + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01"
+            $scopes = GetAzRbacScopes  # Look for object under all the RBAC hierarchy scopes
+            foreach ($scope in $scopes) {
+                $url = $az_url + $scope + "/providers/Microsoft.Authorization/" + $oMap[$t] + "?api-version=2022-04-01&`$filter=roleName+eq+'" + $name + "'"
                 $r = ApiCall "GET" ($url) -quiet
-                if ( $null -ne $r.value ) {
+                if ( ($null -ne $r) -and ($null -ne $r.value) ) {
+                    # NOTE: Would restults ever be an array with MORE than 1 element? Is below name
+                    # confirmation even needed? Can we just return $r.value[0]?
                     foreach ($i in $r.value) {
-                        if ( $i.properties.roleName -eq $name ) {
-                            return $i  # Again, return as soon as we find it
-                        }
+                        if ( $i.properties.roleName -eq $name ) { return $i } # Return as soon as we find it
                     }
                 }
             }
@@ -544,17 +496,21 @@ function GetAzObjectByName($t, $name) {
     }	
 }
 
-function GetSubIds() {
-	# Get all subscription UUIDs
-    #$subIds = [System.Collections.Generic.List[string]]::new()
-    $subIds = @()
-    foreach ($sub in GetAllAzObjects "s") {
-        if ( $sub.displayName -eq "Access to Azure Active Directory" ) {
-            continue
-        }
-        $subIds += $sub.subscriptionId
-    }
-	return $subIds
+function GetAzRbacScopes() {
+    # Get all scopes from the Azure RBAC hierarchy
+	# Let's start with all management group scopes
+	$scopes = @()
+    foreach ($i in GetAllAzObjects "m") {
+        $scopes += $i.id
+	}
+
+	# Now add all the subscription scopes
+    foreach ($i in GetAllAzObjects "s") {
+        ## Skip legacy subscriptions with below name, since they have no role definitions
+        #if ( $sub.displayName -eq "Access to Azure Active Directory" ) { continue }
+        $scopes += $i.id
+	}
+	return $scopes
 }
 
 function GetAzRoleAssignment($roleDefId, $principalId, $scope) {
@@ -565,9 +521,7 @@ function GetAzRoleAssignment($roleDefId, $principalId, $scope) {
     if ( $null -ne $r.value ) {
         foreach ($i in $r.value) {
             $roleId = LastElem $i.properties.roleDefinitionId "/"
-            if ( $roleId -eq $target ) {
-                return $i  # We found it
-            }
+            if ( $roleId -eq $target ) { return $i }  # We found it
         }
     }
     return $null  # Does not exist
@@ -577,9 +531,7 @@ function DeleteAzObject($x) {
 	# Delete Azure role assignment or definition by its fully qualified ID
     $url = $az_url + $x.id + "?api-version=2022-04-01"       
     $r = ApiCall "DELETE" ($url) -quiet
-    if ( $null -eq $r ) {
-        die("Error deleting object $($x.id)")
-    }
+    if ( $null -eq $r ) { die("Error deleting object $($x.id)") }
     exit
 }
 
@@ -779,9 +731,7 @@ properties:
             }
     }        
     $skeleton = Join-Path -Path $pwd -ChildPath $name    
-    if ( FileExist $skeleton ) {
-        die("Error, file `"$skeleton`" already exists.")
-    }
+    if ( FileExist $skeleton ) { die("Error, file `"$skeleton`" already exists.") }
     $content | Out-File $skeleton
     exit
 }
@@ -789,10 +739,7 @@ properties:
 function DeletePrompt($t, $x) {
     PrintAzObject $t ($x)
     $Confirm = Read-Host -Prompt "DELETE above? y/n "
-    if ( $Confirm -eq "y" ) {
-        DeleteAzObject $x
-        exit
-    }
+    if ( $Confirm -eq "y" ) { DeleteAzObject $x ; exit }
     die("Aborted.")
 }
 
@@ -804,9 +751,7 @@ function DeleteObject($specifier) {
             DeletePrompt "d" $x
         }
         $x = GetAzObjectById "a" $specifier  # Check assignments
-        if ( $null -ne $x ) {
-            DeletePrompt "a" $x
-        }
+        if ( $null -ne $x ) { DeletePrompt "a" $x }
         die("No assignment or definition with UUID $specifier")
     } elseif ( FileExist $specifier ) {
         # Delete object defined in specfile
@@ -840,9 +785,7 @@ function DeleteObject($specifier) {
 }
 
 function CompareSpecfile($specfile) {
-    if ( -not (FileExist $specfile) ) {
-        die("File $specfile does not exist.")
-    }
+    if ( -not (FileExist $specfile) ) { die("File $specfile does not exist.") }
     $ft, $t, $x = GetObjectFromFile $specfile
     if ( ($null -eq $ft) -or ($null -eq $t) -or ($null -eq $x) ) {
         die("Files does not appear to be a valid role definition or assignment specfile.")
@@ -874,13 +817,8 @@ function CompareSpecfile($specfile) {
 
 function PrintAzRoleDefinition($object) {
 	# Print role definition object in YAML format
-	if ( $null -eq $object ) {
-		return
-	}
-
-    if ( $null -ne $object.name ) {
-        print("id: {0}" -f $object.name)
-    }
+	if ( $null -eq $object ) { return }
+    if ( $null -ne $object.name ) { print("id: {0}" -f $object.name) }
     $x = $object.properties           # Let's use a variable that's simpler to read   
 	print("properties:")
 	print("  {0} {1}" -f "roleName:", $x.roleName)
@@ -944,13 +882,8 @@ function PrintAzRoleDefinition($object) {
 
 function PrintAzRoleAssignment($object) {
 	# Print role definition object in YAML-like style format
-	if ( $null -eq $object ) {
-		return
-	}
-
-    if ( $null -ne $object.name ) {
-        print("id: {0}" -f $object.name)
-    }
+	if ( $null -eq $object ) { return }
+    if ( $null -ne $object.name ) { print("id: {0}" -f $object.name) }
     $x = $object.properties           # Let's use a variable that's simpler to read 
     print("properties:")
     
@@ -980,9 +913,7 @@ function PrintAzRoleAssignment($object) {
 
 function PrintAzSubscription($object) {
 	# Print subscription object in YAML-like style format
-	if ( $null -eq $object ) {
-		return
-	}
+	if ( $null -eq $object ) { return }
     print("{0,-20} {1}" -f "displayName:", $x.displayName)
     print("{0,-20} {1}" -f "subscriptionId:", $x.subscriptionId)
     print("{0,-20} {1}" -f "state:", $x.state)
@@ -1076,11 +1007,8 @@ function GetObjectFromFile($specfile) {
 
 function UpsertAzObject($specfile) {
     # Create or Update role definition or assignment
-    if ( -not (FileExist $specfile) ) {
-        die("File $specfile does not exist.")
-    }
-
-    $ft, $t, $x = GetObjectFromFile $specfile     # $ft is now used here
+    if ( -not (FileExist $specfile) ) { die("File $specfile does not exist.") }
+    $ft, $t, $x = GetObjectFromFile $specfile     # $ft is not used here
     if ( ($null -ne $t) -and ($t -eq "d") ) {
         UpsertAzRoleDefinition $x
     } elseif ( ($null -ne $t) -and ($t -eq "a") ) {
