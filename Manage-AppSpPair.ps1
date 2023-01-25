@@ -1,8 +1,8 @@
-# Create-AppSpPair.ps1
+# Manage-AppSpPair.ps1
 
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "25"
+$global:prgver          = "0.2.5"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -20,15 +20,15 @@ $global:oMap            = @{      # Hashtable to help generesize many of the fun
 
 # =================== HOUSEKEEPING FUNCTIONS =======================
 function PrintUsage() {
-    die("$prgname Azure App/SP combo creation utility v$prgver`n" +
-        "    -vs NAME|AppUUID                  Display existing App/SP pair with given displayName or App UUID`n" +
-        "    -rm NAME|AppUUID                  Delete existing App/SP pair with given displayName or App UUID`n" +
-        "    -up NAME                          Create App/SP pair with given displayName`n" +
+    die("$prgname Azure App/SP combo manager v$prgver`n" +
+        "    -vs Name|AppUUID                  Display existing App/SP pair with given displayName or App UUID`n" +
+        "    -rm Name|AppUUID                  Delete existing App/SP pair with given displayName or App UUID`n" +
+        "    -up Name                          Create App/SP pair with given displayName`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
-        "    -cr  TENANT_ID CLIENT_ID SECRET   Set up MSAL automated client_id + secret login`n" +
-        "    -cri TENANT_ID USERNAME           Set up MSAL interactive browser popup login`n" +
+        "    -cr  TenantId ClientId Secret     Set up MSAL automated client_id + secret login`n" +
+        "    -cri TenantId Username            Set up MSAL interactive browser popup login`n" +
         "    -tx                               Delete MSAL local session cache`n" +
         "    -v                                Display this usage")
 }
@@ -51,7 +51,7 @@ function InstallPsModule($module) {
             Install-Module $module -Scope CurrentUser -Force -AllowClobber
         }
     } catch {
-        warning("Unable to isntall required module: $module. $_")
+        warning("Unable to install module: $module. $_")
     }
 }
 

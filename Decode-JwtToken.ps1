@@ -1,9 +1,9 @@
-# Decode-Token.ps1
+# Decode-JwtToken.ps1
 # From https://www.michev.info/Blog/Post/2140/decode-jwt-access-and-id-tokens-via-powershell
 # and https://github.com/TonyTromp/powershell-jwt-decoder/blob/main/decode-test.ps1
 
 $global:prgname         = "Decode-Token"
-$global:prgver          = "3"
+$global:prgver          = "0.3.1"
 
 function die($msg) {
     Write-Host -ForegroundColor Yellow $msg ; Exit

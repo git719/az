@@ -2,7 +2,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "29"
+$global:prgver          = "0.3.0"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -29,21 +29,21 @@ $global:oMap            = @{      # Hashtable to help generesize many of the fun
 
 # =================== HOUSEKEEPING FUNCTIONS =======================
 function PrintUsage() {
-    die("$prgname Azure RBAC role definition & assignment manager v$prgver`n" +
+    die("$prgname Azure RBAC resource role definition and assignment manager v$prgver`n" +
         "    UUID                              List definition or assignment given its UUID`n" +
-        "    -vs SPECFILE                      Compare specfile to what's in Azure`n" +
-        "    -rm UUID|SPECFILE|`"role name`"     Delete definition or assignment based on specifier`n" +
-        "    -up SPECFILE                      Create or update definition or assignment based on specfile (YAML or JSON)`n" +
+        "    -vs Specfile                      Compare specfile to what's in Azure`n" +
+        "    -rm UUID|Specfile|`"role name`"     Delete definition or assignment based on specifier`n" +
+        "    -up Specfile                      Create or update definition or assignment based on specfile (YAML or JSON)`n" +
         "    -kd[j]                            Create a skeleton role-definition.yaml specfile (JSON option)`n" +
         "    -ka[j]                            Create a skeleton role-assignment.yaml specfile (JSON option)`n" +
-        "    -d[j] [SPECIFIER]                 List all role definitions, with SPECIFIER filter and JSON options`n" +
-        "    -a[j] [SPECIFIER]                 List all role assignments, with SPECIFIER filter and JSON options`n" +
-        "    -s[j] [SPECIFIER]                 List all subscriptions, with SPECIFIER filter and JSON options`n" +
+        "    -d[j] [Specifier]                 List all role definitions, with SPECIFIER filter and JSON options`n" +
+        "    -a[j] [Specifier]                 List all role assignments, with SPECIFIER filter and JSON options`n" +
+        "    -s[j] [Specifier]                 List all subscriptions, with SPECIFIER filter and JSON options`n" +
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
-        "    -cr  TENANT_ID CLIENT_ID SECRET   Set up MSAL automated client_id + secret login`n" +
-        "    -cri TENANT_ID USERNAME           Set up MSAL interactive browser popup login`n" +
+        "    -cr  TenantId ClientId Secret     Set up MSAL automated client_id + secret login`n" +
+        "    -cri TenantId Username            Set up MSAL interactive browser popup login`n" +
         "    -tx                               Delete MSAL local session cache`n" +
         "    -v                                Display this usage")
 }
@@ -66,7 +66,7 @@ function InstallPsModule($module) {
             Install-Module $module -Scope CurrentUser -Force -AllowClobber
         }
     } catch {
-        warning "Unable to isntall required module: $module. $_"
+        warning "Unable to install module: $module. $_"
     }
 }
 

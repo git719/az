@@ -2,7 +2,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AzGroup"
-$global:prgver          = "19"
+$global:prgver          = "0.1.9"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -23,9 +23,9 @@ $global:oMap            = @{      # Hashtable to help generesize many of the fun
 # =================== HOUSEKEEPING FUNCTIONS =======================
 function PrintUsage() {
     die("$prgname AZ group management utility v$prgver`n" +
-        "    -vs NAME|UUID                     Display existing AZ group with given displayName or UUID`n" +
-        "    -rm NAME|UUID                     Delete existing AZ group with given displayName or UUID`n" +
-        "    -up NAME [DESC] [OWNER] [ASSIGN]  Create AZ group with given displayName (mandatory) and other optional params`n`n" +
+        "    -vs Name|UUID                     Display existing AZ group with given displayName or UUID`n" +
+        "    -rm Name|UUID                     Delete existing AZ group with given displayName or UUID`n" +
+        "    -up Name [Desc] [Owner] [Assign]  Create AZ group with given displayName (mandatory) and other optional params`n`n" +
         "        Note, DESC can be in quotes, OWNER must be in quotes also and comma-separated if multiple,`n" +
         "        and ASSIGN sets the 'isAssignableToRole' attribute to 'false' by default. If setting ASSIGN to`n" +
         "        'true', then you *must* also include DESC and OWNER (at least as null `"`"). Examples:`n`n" +
@@ -36,8 +36,8 @@ function PrintUsage() {
         "`n" +
         "    -z                                Dump variables in running program`n" +
         "    -cr                               Dump values in credentials file`n" +
-        "    -cr  TENANT_ID CLIENT_ID SECRET   Set up MSAL automated client_id + secret login`n" +
-        "    -cri TENANT_ID USERNAME           Set up MSAL interactive browser popup login`n" +
+        "    -cr  TenantId ClientId Secret     Set up MSAL automated client_id + secret login`n" +
+        "    -cri TenantId Username            Set up MSAL interactive browser popup login`n" +
         "    -tx                               Delete MSAL local session cache`n" +
         "    -v                                Display this usage")
 }
@@ -60,7 +60,7 @@ function InstallPsModule($module) {
             Install-Module $module -Scope CurrentUser -Force -AllowClobber
         }
     } catch {
-        warning "Unable to isntall required module: $module. $_"
+        warning "Unable to install module: $module. $_"
     }
 }
 

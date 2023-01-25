@@ -2,7 +2,7 @@
 
 # Global variables
 $global:prgname         = "Manage-SpAuth"
-$global:prgver          = "28"
+$global:prgver          = "0.2.8"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -26,8 +26,8 @@ function PrintUsage() {
         "`n" +
         "    -z                                    Dump variables in running program`n" +
         "    -cr                                   Dump values in credentials file`n" +
-        "    -cr  TENANT_ID CLIENT_ID SECRET       Set up MSAL automated client_id + secret login`n" +
-        "    -cri TENANT_ID USERNAME               Set up MSAL interactive browser popup login`n" +
+        "    -cr  TenantId ClientId Secret         Set up MSAL automated client_id + secret login`n" +
+        "    -cri TenantId Username                Set up MSAL interactive browser popup login`n" +
         "    -tx                                   Delete MSAL local session cache")
 }
 
@@ -49,7 +49,7 @@ function InstallPsModule($module) {
             Install-Module $module -Scope CurrentUser -Force -AllowClobber
         }
     } catch {
-        warning "Unable to isntall required module: $module. $_"
+        warning "Unable to install module: $module. $_"
     }
 }
 
