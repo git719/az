@@ -2,7 +2,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "0.2.5"
+$global:prgver          = "0.2.6"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -45,13 +45,23 @@ function print($msg) {
     Write-Host ($msg)
 }
 
-function InstallPsModule($module) {
-    try {
-        if (-not (Get-Module -ListAvailable -Name $module)) {
-            Install-Module $module -Scope CurrentUser -Force -AllowClobber
+function ImportMod($m) {
+    # Base on https://stackoverflow.com/questions/28740320/how-do-i-check-if-a-powershell-module-is-installed?answertab=active
+    if (Get-Module | Where-Object {$_.Name -eq $m}) {
+        # warning("==> Module $m is already imported.")
+    } else {
+        if (Get-Module -ListAvailable | Where-Object {$_.Name -eq $m}) {
+            # warning("==> Module $m is available on disk. Importing now ...")
+            Import-Module $m
+        } else {
+            if (Find-Module -Name $m -ErrorAction SilentlyContinue | Where-Object {$_.Name -eq $m}) {
+                warning("`n==> Installing module $m from online gallery, and importing ...`n")
+                Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber
+                Import-Module $m
+            } else {
+                die("`n==> Error, module $m not imported, not available from local disk, and not in online gallery.`n")
+            }
         }
-    } catch {
-        warning("Unable to install module: $module. $_")
     }
 }
 
@@ -523,12 +533,11 @@ function CreatePair($displayName) {
 }
 
 # =================== MAIN ===========================
+ImportMod "powershell-yaml"
+ImportMod "MSAL.PS"
 if ( ($args.Count -lt 1) -or ($args.Count -gt 4) ) {
     PrintUsage  # Don't accept less than 1 or more than 4 arguments
 }
-
-InstallPsModule "powershell-yaml"
-InstallPsModule "MSAL.PS"
 
 SetupConfDirectory
 
