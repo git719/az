@@ -2,7 +2,7 @@
 
 # Global variables
 $global:prgname         = "Manage-AppSpPair"
-$global:prgver          = "0.2.6"
+$global:prgver          = "0.4.0"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -76,7 +76,7 @@ function SetupConfDirectory() {
     if ($null -eq $homeDir) {
         die("Fatal. Missing USERPROFILE or HOME environment variable.")
     }
-    $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
+    $global:confdir = Join-Path -Path $homeDir -ChildPath (".maz")
     if (-not (FileExist $global:confdir)) {
         try {
             New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force

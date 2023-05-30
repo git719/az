@@ -2,7 +2,7 @@
 
 # Global variables
 $global:prgname         = "Manage-RbacRole"
-$global:prgver          = "0.3.1"
+$global:prgver          = "0.4.0"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -89,7 +89,7 @@ function SetupConfDirectory() {
         $homeDir = (Get-ChildItem -Path Env:HOME).value   # PowerShell in a non-Windows system
     }
     if ($null -eq $homeDir) { die("Fatal. Missing USERPROFILE or HOME environment variable.") }
-    $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
+    $global:confdir = Join-Path -Path $homeDir -ChildPath (".maz")
     if (-not (FileExist $global:confdir)) {
         try {
             New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force

@@ -1,8 +1,8 @@
-# Manage-SP-Auth.ps1
+# Manage-SpAuth.ps1
 
 # Global variables
 $global:prgname         = "Manage-SpAuth"
-$global:prgver          = "0.2.9"
+$global:prgver          = "0.4.0"
 $global:confdir         = ""
 $global:tenant_id       = ""
 $global:client_id       = ""
@@ -13,6 +13,9 @@ $global:authority_url   = ""
 $global:mg_url          = "https://graph.microsoft.com"
 $global:mg_token        = @{}
 $global:mg_headers      = @{}
+$global:az_url          = "https://management.azure.com"
+$global:az_token        = @{}
+$global:az_headers      = @{}
 
 # =================== HOUSEKEEPING FUNCTIONS =======================
 function PrintUsage() {
@@ -74,7 +77,7 @@ function SetupConfDirectory() {
     if ($null -eq $homeDir) {
         die("Fatal. Missing USERPROFILE or HOME environment variable.")
     }
-    $global:confdir = Join-Path -Path $homeDir -ChildPath ("." + $prgname)
+    $global:confdir = Join-Path -Path $homeDir -ChildPath (".maz")
     if (-not (FileExist $global:confdir)) {
         try {
             New-Item -Path $global:confdir -ItemType Directory -ErrorAction Stop | Out-Null #-Force
